@@ -384,19 +384,34 @@ RC RecordBasedFileManager::encodeMetaInto(void * data,
     return 0;
 }
 
+bool fileHandleNotExists(FileHandle &fileHandle) {
+    return (fileHandle.pFile == nullptr);
+}
+bool recordDescriptorNotExists(const vector<Attribute> &recordDescriptor) {
+    return (recordDescriptor.empty());
+}
+bool pageNumInvalid(FileHandle &fileHandle, PageNum &pageNum) {
+    unsigned totalPageNum = fileHandle.getNumberOfPages();
+    // pageNum is type of unsigned int, thus no need to compare with 0.
+    return (pageNum >= totalPageNum);
+}
+//bool slotNumInvalid(const void * buffer, )
+
 bool recordExists(void * buffer, const RID & rid) {
     short recOffset = getRecOffset(buffer, (short)rid.slotNum);
     short recLength = getRecLength(buffer, (short)rid.slotNum);
     if (recOffset == SLOT_OFFSET_CLEAN && recLength == SLOT_RECLEN_CLEAN) {
         return false;
     }
-    //    else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
-    //        throw("Slots info got messed up.");
-    //    }
+    else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
+        throw("Slots info got messed up.");
+    }
     else {
         return true;
     }
 }
+
+
 RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
                                       const vector<Attribute> &recordDescriptor,
                                       const RID &rid,
@@ -517,11 +532,11 @@ short getSlotsLeftBound(const void * buffer,
             // nullified slot, doesn't count towards totSlots
             slotIdx += 1; // move slotIdx left by 1
         }
-        //        else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
-        //            // ERROR
-        ////            cout << "UNEXPECTED!" << endl;
-        //            throw("UNEXPECTED");
-        //        }
+        else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
+            // ERROR
+//            cout << "UNEXPECTED!" << endl;
+            throw("UNEXPECTED");
+        }
         else {
             slotIdx += 1;
             counter += 1;
@@ -561,10 +576,10 @@ RC kickinRemainingRecords(void * buffer,
         i++;
     }
     // eligibility check : actually found nxtRecLength
-    //    if (nxtRecLength == SLOT_RECLEN_CLEAN) {
-    ////        cout << "Didn't find the slot storing record offset: " << nxtRecOffset << endl;
-    //        throw("Didn't find the slot storing nxtRecOffset.");
-    //    }
+    if (nxtRecLength == SLOT_RECLEN_CLEAN) {
+//        cout << "Didn't find the slot storing record offset: " << nxtRecOffset << endl;
+        throw("Didn't find the slot storing nxtRecOffset.");
+    }
     // ready to move nxtRec
     memcpy((char*)buffer + breakPoint, (char*)buffer + nxtRecOffset, (size_t) nxtRecLength);
     short newBreakPoint = breakPoint + nxtRecLength;
@@ -610,6 +625,20 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     return 0;
 }
 
-//RC updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid) {
-//
-//}
+/*
+ Implementation Algorithm:
+ 
+ if the updated record length <= original record length + remaining space, just delete the original and call kickinRemainingRecord() and append the updated one in the end. Don't forget update the slot info.
+ else, just delete the original record, allocate 1 byte memory to store a RID pointing to somewhere in another page, and call kickinRemainingRecord(), and put the updated one in the new place.
+ 
+ *** no record has length less than or equal to 1 byte, except those that gets moved to other page after being updated.
+ *** those records have length == 1 byte, which stores its next rid.pageNum and rid.slotNum
+ 
+ */
+RC updateRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, const RID &rid) {
+    
+//    short avaiSpaceLength = getFreeOffset()
+    
+    return 0;
+}
+
