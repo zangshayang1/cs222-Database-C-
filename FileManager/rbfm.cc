@@ -107,7 +107,7 @@ short getRecLength(const void * data, const SlotNum & slotIdx) {
 
 SlotNum nextAvaiSlot(const void * data, const short & totSlots) {
     SlotNum i = 0;
-    while (i <= totSlots) {
+    while (i < totSlots) {
         short recOffset = getRecOffset(data, i);
         short recLength = getRecLength(data, i);
         if (recOffset == SLOT_OFFSET_CLEAN && recLength == SLOT_RECLEN_CLEAN) {
@@ -142,27 +142,53 @@ bool recordDescriptorNotExists(const vector<Attribute> &recordDescriptor) {
     return (recordDescriptor.empty());
 }
 
-bool pageNumInvalid(FileHandle &fileHandle, PageNum &pageNum) {
+bool pageNumInvalid(FileHandle & fileHandle, const PageNum & pageNum) {
     unsigned totalPageNum = fileHandle.getNumberOfPages();
     // pageNum is type of unsigned int, thus no need to compare with 0.
     return (pageNum >= totalPageNum);
 }
 
-//bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
-//
-//}
+short getSlotsLeftBound(const void * buffer,
+                        const short & totSlots) {
+    SlotNum slotIdx = 0;
+    short counter = 0;
+    while (counter < totSlots) {
+        short recOffset = getRecOffset(buffer, slotIdx);
+        short recLength = getRecLength(buffer, slotIdx);
+        if ( recOffset == SLOT_OFFSET_CLEAN &&  recLength == SLOT_RECLEN_CLEAN) {
+            // nullified slot, doesn't count towards totSlots
+            slotIdx += 1; // move slotIdx left by 1
+        }
+        else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
+            throw("UNEXPECTED");
+        }
+        else {
+            slotIdx += 1;
+            counter += 1;
+        }
+    }
+    return RIGHT_MOST_SLOT_OFFSET - (slotIdx - 1) * sizeof(int);
+}
 
-bool recordExists(void * buffer, const RID & rid) {
+bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
+    short leftMostOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    // SlotNum unsigned typed, no need to check < 0
+    // slotNum index should never fall into the left side of leftMostOffset
+    return (RIGHT_MOST_SLOT_OFFSET - slotNum * sizeof(int) < leftMostOffset);
+}
+
+bool recordDeleted(void * buffer, const RID & rid) {
     short recOffset = getRecOffset(buffer, rid.slotNum);
     short recLength = getRecLength(buffer, rid.slotNum);
+    
     if (recOffset == SLOT_OFFSET_CLEAN && recLength == SLOT_RECLEN_CLEAN) {
-        return false;
+        return true;
     }
     else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
         throw("Slots info got messed up.");
     }
     else {
-        return true;
+        return false;
     }
 }
 
@@ -355,10 +381,10 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
                                         const vector<Attribute> &recordDescriptor,
                                         const void *data,
                                         RID &rid) {
-    if (fileHandle.pFile == nullptr || recordDescriptor.empty() || data == nullptr) {
+    // check fileHandler
+    if (fileHandleNotExists(fileHandle) || recordDescriptorNotExists(recordDescriptor)) {
         return -1;
     }
-    
     // must first find recordLen and then find if a suitable page exists.
     short recordLen;
     // you cannot pass in a uninitialized pointer
@@ -430,31 +456,27 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
                                       const RID &rid,
                                       void *data) {
     // check fileHandler
-    if (fileHandle.pFile == nullptr || recordDescriptor.empty()) {
+    if (fileHandleNotExists(fileHandle) || recordDescriptorNotExists(recordDescriptor)) {
         return -1;
     }
-    // check rid.pageNum
-    unsigned total_page_num = fileHandle.getNumberOfPages();
-    if (rid.pageNum > total_page_num) {
+    // check page number
+    if (pageNumInvalid(fileHandle, rid.pageNum)) {
         return -1;
     }
-    // check rid.slotNum
+    // read page in
     void * buffer = malloc(PAGE_SIZE);
     fileHandle.readPage(rid.pageNum, buffer);
-    
-    short totalSlots = getTotalSlotsNum(buffer);
-    if (rid.slotNum > totalSlots) {
+    // check slot number
+    if (slotNumInvalid(buffer, rid.slotNum)) {
         return -1;
     }
-    
-    if (!recordExists(buffer, rid)) {
+    // check if the record still there
+    if (recordDeleted(buffer, rid)) {
         return -1;
     }
-    
     // find record_offset and recordLen
     short record_offset = getRecOffset(buffer, rid.slotNum);
     short recordLen = getRecLength(buffer, rid.slotNum);
-    // check if the record still exists
     
     // read data into record (another block of memory)
     void * record = getRecordFrom(buffer, record_offset, recordLen);
@@ -534,30 +556,6 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
     return 0;
 }
 
-short getSlotsLeftBound(const void * buffer,
-                        const short & totSlots) {
-    SlotNum slotIdx = 0;
-    short counter = 0;
-    while (counter < totSlots) {
-        short recOffset = getRecOffset(buffer, slotIdx);
-        short recLength = getRecLength(buffer, slotIdx);
-        if ( recOffset == SLOT_OFFSET_CLEAN &&  recLength == SLOT_RECLEN_CLEAN) {
-            // nullified slot, doesn't count towards totSlots
-            slotIdx += 1; // move slotIdx left by 1
-        }
-        else if (recOffset == SLOT_OFFSET_CLEAN || recLength == SLOT_RECLEN_CLEAN) {
-            // ERROR
-//            cout << "UNEXPECTED!" << endl;
-            throw("UNEXPECTED");
-        }
-        else {
-            slotIdx += 1;
-            counter += 1;
-        }
-    }
-    return RIGHT_MOST_SLOT_OFFSET - slotIdx * sizeof(int);
-}
-
 bool allEmptyBytes(const void * buffer,
                    const short & start,
                    const short & length) {
@@ -606,16 +604,21 @@ RC kickinRemainingRecords(void * buffer,
 RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
                                         const vector<Attribute> & recordDescriptor,
                                         const RID &rid) {
-    if (fileHandle.pFile == nullptr || recordDescriptor.empty()) {
+    // check fileHandler
+    if (fileHandleNotExists(fileHandle) || recordDescriptorNotExists(recordDescriptor)) {
         return -1;
     }
-    
-    if (rid.pageNum >= fileHandle.getNumberOfPages() || rid.slotNum > PAGE_SIZE) {
+    // check page number
+    if (pageNumInvalid(fileHandle, rid.pageNum)) {
         return -1;
     }
     // read page in
     void * buffer = malloc(PAGE_SIZE);
     fileHandle.readPage(rid.pageNum, buffer);
+    // check slot number
+    if (slotNumInvalid(buffer, rid.slotNum)) {
+        return -1;
+    }
     
     // erase record in memory
     short recLength = getRecLength(buffer, rid.slotNum);
