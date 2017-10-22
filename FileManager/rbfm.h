@@ -13,6 +13,8 @@
 // a 2bytes (short int) would be sufficient to repr free space in a 4KB page
 #define SLOT_NUM_INFO_POS 4092
 
+#define RIGHT_MOST_SLOT_OFFSET 4088
+
 #define BITES_PER_BYTE 8
 
 using namespace std;

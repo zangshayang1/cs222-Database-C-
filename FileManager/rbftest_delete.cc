@@ -91,7 +91,7 @@ int RBFTest_Delete(RecordBasedFileManager *rbfm)
 	assert(rc == success && "Inserting a record should not fail.");
 
 	unsigned slotNum = rid.slotNum;
-	rid.slotNum = 1;
+	rid.slotNum = 0;
 
 	rc = rbfm->deleteRecord(fileHandle, recordDescriptor, rid);
 	assert(rc == success && "Deleting a record should not fail.");
@@ -119,7 +119,7 @@ int RBFTest_Delete(RecordBasedFileManager *rbfm)
 
 	rc = rbfm->insertRecord(fileHandle, recordDescriptor, record, rid);
 	assert(rc == success && "Inserting a record should not fail.");
-	assert(rid.slotNum == 1 && "Inserted record should use previous deleted slot.");
+	assert(rid.slotNum == 0 && "Inserted record should use previous deleted slot.");
 
 	// Given the rid, read the record from file
 	rc = rbfm->readRecord(fileHandle, recordDescriptor, rid, returnedData);
