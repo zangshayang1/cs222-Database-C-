@@ -206,7 +206,7 @@ RC RecordBasedFileManager::insertIntoNewPage(FileHandle & fileHandle,
     
     fileHandle.appendPage(buffer);
     rid.pageNum = fileHandle.getNumberOfPages() - 1; // indexing starts by 0
-    rid.slotNum = (unsigned int) totalSlots; // indexing starts by 1
+    rid.slotNum = (SlotNum) totalSlots; // indexing starts by 1
     
     free(buffer);
     return 0;
@@ -234,20 +234,20 @@ RC putTotalSlotsNum(const void * data, const short & totSlots) {
     return 0;
 }
 
-short getRecOffset(const void * data, const short & slotIdx) {
+short getRecOffset(const void * data, const SlotNum & slotIdx) {
     short offset;
     memcpy(&offset, (char*)data + SLOT_NUM_INFO_POS - slotIdx * sizeof(int), sizeof(short));
     return offset;
 }
 
-short getRecLength(const void * data, const short & slotIdx) {
+short getRecLength(const void * data, const SlotNum & slotIdx) {
     short recLen;
     memcpy(&recLen, (char*)data + SLOT_NUM_INFO_POS - slotIdx * sizeof(int) + sizeof(short), sizeof(short));
     return recLen;
 }
 
-short nextAvaiSlot(const void * data, const short & totSlots) {
-    short i = 1;
+SlotNum nextAvaiSlot(const void * data, const short & totSlots) {
+    SlotNum i = 1;
     while (i <= totSlots) {
         short recOffset = getRecOffset(data, i);
         short recLength = getRecLength(data, i);
@@ -259,12 +259,12 @@ short nextAvaiSlot(const void * data, const short & totSlots) {
     return i;
 }
 
-RC putRecOffset(const void * data, const short & slotIdx, const short & offset) {
+RC putRecOffset(const void * data, const SlotNum & slotIdx, const short & offset) {
     memcpy((char*)data + SLOT_NUM_INFO_POS - slotIdx * sizeof(int), & offset, sizeof(short));
     return 0;
 }
 
-RC putRecLength(const void * data, const short & slotIdx, const short & length) {
+RC putRecLength(const void * data, const SlotNum & slotIdx, const short & length) {
     memcpy((char*)data + SLOT_NUM_INFO_POS - slotIdx * sizeof(int) + sizeof(short), & length, sizeof(short));
     return 0;
 }
@@ -291,7 +291,7 @@ RC RecordBasedFileManager::insertIntoPage(FileHandle & fileHandle,
     // adjust freeSpace
     freeSpace += recordLen;
     
-    short next_slot_pos = nextAvaiSlot(buffer, totalSlots);
+    SlotNum next_slot_pos = nextAvaiSlot(buffer, totalSlots);
     
     totalSlots += (short) 1;
     
@@ -398,8 +398,8 @@ bool pageNumInvalid(FileHandle &fileHandle, PageNum &pageNum) {
 //bool slotNumInvalid(const void * buffer, )
 
 bool recordExists(void * buffer, const RID & rid) {
-    short recOffset = getRecOffset(buffer, (short)rid.slotNum);
-    short recLength = getRecLength(buffer, (short)rid.slotNum);
+    short recOffset = getRecOffset(buffer, rid.slotNum);
+    short recLength = getRecLength(buffer, rid.slotNum);
     if (recOffset == SLOT_OFFSET_CLEAN && recLength == SLOT_RECLEN_CLEAN) {
         return false;
     }
@@ -439,8 +439,8 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     }
     
     // find record_offset and recordLen
-    short record_offset = getRecOffset(buffer, (short) rid.slotNum);
-    short recordLen = getRecLength(buffer, (short) rid.slotNum);
+    short record_offset = getRecOffset(buffer, rid.slotNum);
+    short recordLen = getRecLength(buffer, rid.slotNum);
     // check if the record still exists
     
     // read data into record (another block of memory)
@@ -523,7 +523,7 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 
 short getSlotsLeftBound(const void * buffer,
                         const short & totSlots) {
-    short slotIdx = 1;
+    SlotNum slotIdx = 1;
     short counter = 0;
     while (counter < totSlots) {
         short recOffset = getRecOffset(buffer, slotIdx);
@@ -605,13 +605,13 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     fileHandle.readPage(rid.pageNum, buffer);
     
     // erase record in memory
-    short recLength = getRecLength(buffer, (short)rid.slotNum);
-    short recOffset = getRecOffset(buffer, (short)rid.slotNum);
+    short recLength = getRecLength(buffer, rid.slotNum);
+    short recOffset = getRecOffset(buffer, rid.slotNum);
     memset((char*)buffer + recOffset, EMPTY_BYTE, (size_t)recLength);
     
     // reset slot info, freeOffset, totalslotNum, etc
-    putRecOffset(buffer, (short)rid.slotNum, SLOT_OFFSET_CLEAN);
-    putRecLength(buffer, (short)rid.slotNum, SLOT_RECLEN_CLEAN);
+    putRecOffset(buffer, rid.slotNum, SLOT_OFFSET_CLEAN);
+    putRecLength(buffer, rid.slotNum, SLOT_RECLEN_CLEAN);
     putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) - (short)1);
     putFreeOffset(buffer, getFreeOffset(buffer) - recLength);
     

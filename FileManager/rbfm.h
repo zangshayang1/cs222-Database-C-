@@ -21,7 +21,7 @@ using namespace std;
 typedef struct
 {
     PageNum pageNum;    // page number
-    unsigned slotNum;    // slot number in the page
+    SlotNum slotNum;    // slot number in the page
 } RID;
 
 

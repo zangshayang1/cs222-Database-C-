@@ -2,7 +2,7 @@
 #define _pfm_h_
 
 typedef unsigned PageNum;
-//typedef short SlotNum;
+typedef unsigned SlotNum;
 typedef int RC;
 typedef char byte;
 
