@@ -189,13 +189,13 @@ RC RecordBasedFileManager::insertIntoNewPage(FileHandle & fileHandle,
     short totalSlots = 1;
     memcpy((char*)buffer + SLOT_NUM_INFO_POS, & totalSlots, sizeof(short));
     
-    // next_slot_position is determined by SLOT_NUM_INFO_POS and totalSlots
+    // next_slot_offset is determined by SLOT_NUM_INFO_POS and totalSlots
     // init record_offset so that (char*)buffer + record_offset can be the address of the record
     // SLOT[record_offset, record_length] -> each takes 2 bytes
-    short next_slot_pos = SLOT_NUM_INFO_POS - sizeof(int) * totalSlots; // 4092 - 4 * 1 = 4088
+    short nxtSlotOffset = SLOT_NUM_INFO_POS - sizeof(int) * totalSlots; // 4092 - 4 * 1 = 4088
     short record_offset = 0;
-    memcpy((char*)buffer + next_slot_pos, & record_offset, sizeof(short));
-    memcpy((char*)buffer + next_slot_pos + sizeof(short), & recordLen, sizeof(short));
+    memcpy((char*)buffer + nxtSlotOffset, & record_offset, sizeof(short));
+    memcpy((char*)buffer + nxtSlotOffset + sizeof(short), & recordLen, sizeof(short));
     
     // fill in record data
     memcpy((char*)buffer + record_offset, record, (size_t) recordLen);
@@ -291,20 +291,18 @@ RC RecordBasedFileManager::insertIntoPage(FileHandle & fileHandle,
     // adjust freeSpace
     freeSpace += recordLen;
     
-    SlotNum next_slot_pos = nextAvaiSlot(buffer, totalSlots);
-    
-    totalSlots += (short) 1;
+    SlotNum nxtSlotIdx = nextAvaiSlot(buffer, totalSlots);
     
     // put all the above back
     putFreeOffset(buffer, freeSpace);
-    putTotalSlotsNum(buffer, totalSlots);
-    putRecOffset(buffer, next_slot_pos, recOffset);
-    putRecLength(buffer, next_slot_pos, recordLen);
+    putTotalSlotsNum(buffer, totalSlots + 1);
+    putRecOffset(buffer, nxtSlotIdx, recOffset);
+    putRecLength(buffer, nxtSlotIdx, recordLen);
     
     fileHandle.writePage(next_avai_page, buffer);
     
     rid.pageNum = next_avai_page;
-    rid.slotNum = next_slot_pos;
+    rid.slotNum = nxtSlotIdx;
     // the idx of the current slot = sum(slots) as long as they are incrementing only
     
     free(buffer);
@@ -395,7 +393,9 @@ bool pageNumInvalid(FileHandle &fileHandle, PageNum &pageNum) {
     // pageNum is type of unsigned int, thus no need to compare with 0.
     return (pageNum >= totalPageNum);
 }
-//bool slotNumInvalid(const void * buffer, )
+bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
+    
+}
 
 bool recordExists(void * buffer, const RID & rid) {
     short recOffset = getRecOffset(buffer, rid.slotNum);
