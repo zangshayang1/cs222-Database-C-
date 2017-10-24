@@ -5,6 +5,8 @@ typedef unsigned PageNum;
 typedef unsigned SlotNum;
 typedef int RC;
 typedef char byte;
+typedef unsigned char CompressedPageNum[3];
+typedef unsigned char CompressedSlotNum[2];
 
 #define PAGE_SIZE 4096
 

@@ -26,6 +26,12 @@ typedef struct
     SlotNum slotNum;    // slot number in the page
 } RID;
 
+// Beacon (used to indicate where the record is really located. It is needed when an updateRecord operation cannot be done in its original page. This way, once a RID is initialized when a record is initially inserted, it doesn't change.)
+typedef struct
+{
+    CompressedPageNum cpsdPageNum; // compressed page number
+    CompressedSlotNum cpsdSlotNum; // compressed slot number
+} Beacon;
 
 // Attribute
 typedef enum { TypeInt = 0, TypeReal, TypeVarChar } AttrType;
@@ -155,23 +161,7 @@ private:
     char* decodeMetaFrom(const void* data,
                          const vector<Attribute> &recordDescriptor,
                          short int & recordLen);
-    
-    PageNum findNextAvaiPage(FileHandle & fileHandle,
-                             const short int & recordLen);
-    
-    short int checkForSpace(FileHandle & fileHandle,
-                            const PageNum & pageNum);
-    
-    RC insertIntoNewPage(FileHandle & fileHandle,
-                         const void * record,
-                         RID &rid,
-                         const short int & recordLen);
-    
-    RC insertIntoPage(FileHandle & fileHandle,
-                      const PageNum & next_avai_page,
-                      const void * record,
-                      RID & rid,
-                      const short int & recordLen);
+
     RC encodeMetaInto(void * data,
                       const void * record,
                       const short int & fieldNum,

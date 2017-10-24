@@ -6,7 +6,7 @@
 const short ATTR_NULL_FLAG = -1;
 const short SLOT_OFFSET_CLEAN = -2;
 const short SLOT_RECLEN_CLEAN = -3;
-const PageNum PAGENUM_UNAVAILABLE = -4;
+const int PAGENUM_UNAVAILABLE = -4;
 const int EMPTY_BYTE = -5;
 
 
@@ -58,6 +58,33 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
  Below
 --------------------------------------------------------------------------------------- */
 
+void print_char(const unsigned char oneChar) {
+    unsigned char mask;
+    cout << '[';
+    for(int i = 0; i < 8; i++) {
+        mask = (0x80 >> i);
+        if ((oneChar & mask) == mask) {
+            cout << '1';
+        }
+        else {
+            cout << '0';
+        }
+    }
+    cout << ']' << endl;
+}
+void print_bytes(void *object, size_t size)
+{
+    // This is for C++; in C just drop the static_cast<>() and assign.
+    //    const unsigned char * const bytes = static_cast<const unsigned char *>(object);
+    unsigned char data[size];
+    memcpy(data, object, size);
+    for (int i = 0; i < size; i++) {
+        cout << "char " << i << endl;
+        print_char(data[i]);
+    }
+}
+
+
 // this function returns string content from the given data chunk and offset
 // NOTE that the first 4bytes make an int indicator of the strLen
 string getStringFrom(const void * data,
@@ -105,11 +132,12 @@ short getRecLength(const void * data, const SlotNum & slotIdx) {
     return recLen;
 }
 
-SlotNum nextAvaiSlot(const void * data, const short & totSlots) {
+SlotNum nextAvaiSlot(const void * buffer) {
+    short totSlots = getTotalSlotsNum(buffer);
     SlotNum i = 0;
     while (i < totSlots) {
-        short recOffset = getRecOffset(data, i);
-        short recLength = getRecLength(data, i);
+        short recOffset = getRecOffset(buffer, i);
+        short recLength = getRecLength(buffer, i);
         if (recOffset == SLOT_OFFSET_CLEAN && recLength == SLOT_RECLEN_CLEAN) {
             break;
         }
@@ -118,20 +146,46 @@ SlotNum nextAvaiSlot(const void * data, const short & totSlots) {
     return i;
 }
 
-RC putRecOffset(const void * data, const SlotNum & slotIdx, const short & offset) {
+RC putRecOffset(void * data, const SlotNum & slotIdx, const short & offset) {
     memcpy((char*)data + RIGHT_MOST_SLOT_OFFSET - slotIdx * sizeof(int), & offset, sizeof(short));
     return 0;
 }
 
-RC putRecLength(const void * data, const SlotNum & slotIdx, const short & length) {
+RC putRecLength(void * data, const SlotNum & slotIdx, const short & length) {
     memcpy((char*)data + RIGHT_MOST_SLOT_OFFSET - slotIdx * sizeof(int) + sizeof(short), & length, sizeof(short));
     return 0;
 }
 
-void* getRecordFrom(const void * data, const short & offset, const short & recLength) {
-    void * record = malloc((size_t) recLength);
-    memcpy(record, (char*)data + offset, (size_t) recLength);
-    return record;
+
+/*
+ the two functions, namely, compressed() and decompressed() work as following:
+     Beacon = compressed(RID)
+         -> take the first 3 bytes of rid.pageNum and put it into beacon.cpsdPageNum
+         -> take the first 2 bytes of rid.slotNum and put it into beacon.cosdSlotNum
+ *** Special Note: (BigEndian VS LittleEndian) we gave up the most significant byte in rid.pageNum because we believe the rest bytes can represent enough space for this project. Depending on your machine hardware, you need to configure which byte is the most significant byte in an unsigned int type of data structure. Here the implementation indicates we are using LittleEndian.
+ 
+     RID = decompressed(Beacon)
+         -> simply reverse
+ */
+
+Beacon compressed(const RID & rid) {
+    // rid.pageNum -> 4-byte unsigned
+    Beacon beacon;
+    // beacon.cpsdPageNum -> unsigned char[3]
+    memcpy(beacon.cpsdPageNum, &rid.pageNum, 3);
+    // beacon.cpsdSlotNum -> unsigned char[2]
+    memcpy(beacon.cpsdSlotNum, &rid.slotNum, 3);
+
+    return beacon;
+}
+
+RID decompressed(const Beacon & beacon) {
+    RID rid;
+    rid.pageNum = 0; // init as all 0
+    rid.slotNum = 0; // init as all 0
+    memcpy(&rid.pageNum, beacon.cpsdPageNum, 3);
+    memcpy(&rid.slotNum, beacon.cpsdSlotNum, 2);
+    return rid;
 }
 
 bool fileHandleNotExists(FileHandle &fileHandle) {
@@ -192,6 +246,43 @@ bool recordDeleted(void * buffer, const RID & rid) {
     }
 }
 
+void * getRecord(FileHandle & fileHandle,
+                 const RID & rid,
+                 RID & realRid,
+                 short & realRecLen) {
+    void * buffer = malloc(PAGE_SIZE);
+    fileHandle.readPage(rid.pageNum, buffer);
+    short recOfs = getRecOffset(buffer, rid.slotNum);
+    short recLen = getRecLength(buffer, rid.slotNum);
+    //    cout << "inside getRecord()" << endl;
+    //    cout << "recOfs: " << recOfs << endl;
+    //    cout << "recLen: " << recLen << endl;
+    if (recordDeleted(buffer, rid)) {
+        // missing piece
+        void * record = nullptr;
+        return record;
+    }
+    if (recLen > 5) {
+        void * record = malloc(recLen);
+        memcpy(record, (char*)buffer + recOfs, (size_t) recLen);
+        realRid.pageNum = rid.pageNum;
+        realRid.slotNum = rid.slotNum;
+        realRecLen = recLen;
+        free(buffer);
+        return record;
+    }
+    else if (recLen == 5) {
+        Beacon beacon;
+        memcpy(& beacon, (char*)buffer + recOfs, 5);
+        RID newRid = decompressed(beacon);
+        free(buffer);
+        return getRecord(fileHandle, newRid, realRid, realRecLen);
+    }
+    else {
+        throw("There shouldn't be a record whose length < 5.");
+    }
+}
+
 /* ---------------------------------------------------------------------------------------
  Utils
  
@@ -202,8 +293,8 @@ bool recordDeleted(void * buffer, const RID & rid) {
 
 // This func checks the absolute amount of freespace on the page pointed by fileHandle + pageNum
 // freeSpace -> itself is a pointer variable pointing to the address passed in, in our case, [11]
-short RecordBasedFileManager::checkForSpace(FileHandle & fileHandle,
-                                            const PageNum & pageNum) {
+short checkForSpace(FileHandle & fileHandle,
+                    const PageNum & pageNum) {
     void* buffer = malloc(PAGE_SIZE);
     fileHandle.readPage(pageNum, buffer);
     short freeSpaceOffset = getFreeOffset(buffer);
@@ -236,7 +327,7 @@ char* RecordBasedFileManager::decodeMetaFrom(const void* data,
         
         short j = 0;
         while (j < BITES_PER_BYTE) {
-            auto mask = (char) (0x80 >> j); // 1000 0000 >> j
+            auto mask = (unsigned char) (0x80 >> j); // 1000 0000 >> j
             short target_field_idx = i * (short) BITES_PER_BYTE + j;
             // check eligibility
             if (target_field_idx >= fieldLength) {
@@ -271,7 +362,10 @@ char* RecordBasedFileManager::decodeMetaFrom(const void* data,
         i++;
     }
     // now dataLength has been computed, record = [meta + data - n_byte], where dataLength = data - n_byte
-    recordLen = metaLength + dataLength;
+    recordLen = metaLength + dataLength - n_bytes;
+//    cout << "Inside of decodeMeta(): " << endl;
+//    cout << "metaLength: " << metaLength << endl;
+//    cout << "dataLength: " << dataLength << endl;
     void * record = malloc((size_t) recordLen);
     // void * record -> [meta1, meta2,..., data1, data2,...]
     memcpy(record, meta, (size_t) metaLength);
@@ -284,8 +378,8 @@ char* RecordBasedFileManager::decodeMetaFrom(const void* data,
 
 
 
-PageNum RecordBasedFileManager::findNextAvaiPage(FileHandle & fileHandle,
-                                                 const short & recordLen) {
+int findNextAvaiPage(FileHandle & fileHandle,
+                         const short & recordLen) {
     PageNum totalPageNum = fileHandle.getNumberOfPages();
     
     // if no page was ever allocated
@@ -293,7 +387,7 @@ PageNum RecordBasedFileManager::findNextAvaiPage(FileHandle & fileHandle,
         return PAGENUM_UNAVAILABLE;
     }
     // page indexing starts by 0!!!!!
-    PageNum i = 0;
+    int i = 0;
     while (i < totalPageNum) {
         short spaceLeftEmpty = checkForSpace(fileHandle, i);
         // when freeSpace gets out of the above func, the 2bytes of memory were filled by the page's freespace value
@@ -306,72 +400,69 @@ PageNum RecordBasedFileManager::findNextAvaiPage(FileHandle & fileHandle,
     return PAGENUM_UNAVAILABLE;
 }
 
+// this helper function is shared by insertIntoNewPage() and insertIntoPage()
+RC insertIntoPageHelper(void * buffer,
+                        const void * record,
+                        const short & recOffset,
+                        const short & recordLen,
+                        const SlotNum & slotIdx) {
+    
+    // fill in slot info
+    putRecOffset(buffer, slotIdx, recOffset);
+    putRecLength(buffer, slotIdx, recordLen);
+    // fill in record data
+    memcpy((char*)buffer + recOffset, record, (size_t) recordLen);
+    // fill in slotNum
+    putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) + 1);
+    // fill in freeSpaceOffset
+    putFreeOffset(buffer, getFreeOffset(buffer) + recordLen);
+    
+    return 0;
+}
 
-RC RecordBasedFileManager::insertIntoNewPage(FileHandle & fileHandle,
-                                             const void * record,
-                                             RID &rid,
-                                             const short & recordLen) {
+RC insertIntoNewPage(FileHandle & fileHandle,
+                     const void * record,
+                     RID &rid,
+                     const short & recordLen) {
+    
     void * buffer = malloc(PAGE_SIZE);
     // without the following memset(), the entire chunk of memory will remain uninitialized
     // ERROR: Syscall param write(buf) points to uninitialised byte(s)
     memset(buffer, EMPTY_BYTE, PAGE_SIZE);
     
-    // next_slot_offset is determined by SLOT_NUM_INFO_POS and totalSlots
-    // init record_offset so that (char*)buffer + record_offset can be the address of the record
-    // SLOT[record_offset, record_length] -> each takes 2 bytes
-    short record_offset = 0;
-    memcpy((char*)buffer + RIGHT_MOST_SLOT_OFFSET, & record_offset, sizeof(short));
-    memcpy((char*)buffer + RIGHT_MOST_SLOT_OFFSET + sizeof(short), & recordLen, sizeof(short));
+    // init totalSlotsNum
+    putTotalSlotsNum(buffer, (short) 0);
+    // init freeSpaceOffset
+    putFreeOffset(buffer, (short) 0);
+    // init slotNum, indexing starts by 0
+    rid.slotNum = (SlotNum) 0;
     
-    // fill in record data
-    memcpy((char*)buffer + record_offset, record, (size_t) recordLen);
-    
-    // we are inserting the first record of this new page
-    short totalSlots = 1;
-    memcpy((char*)buffer + SLOT_NUM_INFO_POS, & totalSlots, sizeof(short));
-    
-    // fill in freeSpaceOffset
-    short freeSpaceOffset = recordLen;
-    memcpy((char*)buffer + FREE_SPACE_INFO_POS, & freeSpaceOffset, sizeof(short));
+    // insert the record into buffer at 0 offset and fill in slotNum 0 with correct recordOffset and recordLen
+    insertIntoPageHelper(buffer, record, (short) 0, recordLen, rid.slotNum);
     
     fileHandle.appendPage(buffer);
     
     rid.pageNum = fileHandle.getNumberOfPages() - 1; // indexing starts by 0
-    rid.slotNum = (SlotNum) (totalSlots - 1); // indexing starts by 0
     
     free(buffer);
     return 0;
 }
 
-RC RecordBasedFileManager::insertIntoPage(FileHandle & fileHandle,
-                                          const PageNum & next_avai_page,
-                                          const void * record,
-                                          RID & rid,
-                                          const short & recordLen) {
+RC insertIntoPage(FileHandle & fileHandle,
+                  const PageNum & next_avai_page,
+                  const void * record,
+                  RID & rid,
+                  const short & recordLen) {
     void * buffer = malloc(PAGE_SIZE);
     fileHandle.readPage(next_avai_page, buffer);
     
-    short totalSlots = getTotalSlotsNum(buffer);
-    short freeSpace = getFreeOffset(buffer);
-    // fill in record
-    short recOffset = freeSpace;
-    memcpy((char*)buffer + recOffset, record, (size_t) recordLen);
-    // adjust freeSpace
-    freeSpace += recordLen;
+    rid.pageNum = next_avai_page;
+    rid.slotNum = nextAvaiSlot(buffer);
     
-    SlotNum nxtSlotIdx = nextAvaiSlot(buffer, totalSlots);
-    
-    // put all the above back
-    putFreeOffset(buffer, freeSpace);
-    putTotalSlotsNum(buffer, totalSlots + 1);
-    putRecOffset(buffer, nxtSlotIdx, recOffset);
-    putRecLength(buffer, nxtSlotIdx, recordLen);
+    // insert record into buffer at page rid.pageNum, recordOffset -> freeSpaceOffset in the buffer, fill in slot info at rid.slotNum
+    insertIntoPageHelper(buffer, record, getFreeOffset(buffer), recordLen, rid.slotNum);
     
     fileHandle.writePage(next_avai_page, buffer);
-    
-    rid.pageNum = next_avai_page;
-    rid.slotNum = nxtSlotIdx;
-    // the idx of the current slot = sum(slots) as long as they are incrementing only
     
     free(buffer);
     return 0;
@@ -390,15 +481,15 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     // you cannot pass in a uninitialized pointer
     void* record = decodeMetaFrom(data, recordDescriptor, recordLen);
     
-    PageNum next_avai_page = findNextAvaiPage(fileHandle, recordLen);
-    if (next_avai_page == PAGENUM_UNAVAILABLE) {
+    int nxtAvaiPage = findNextAvaiPage(fileHandle, recordLen);
+    if (nxtAvaiPage == PAGENUM_UNAVAILABLE) {
         // if no page was ever allocated, meaning this is the first ever record insertion,
         // OR if no page was found to have enough capacity to hold this record
         // execute the following
         insertIntoNewPage(fileHandle, record, rid, recordLen);
     }
     else {
-        insertIntoPage(fileHandle, next_avai_page, record, rid, recordLen);
+        insertIntoPage(fileHandle, nxtAvaiPage, record, rid, recordLen);
     }
     
     free(record);
@@ -422,7 +513,7 @@ RC RecordBasedFileManager::encodeMetaInto(void * data,
         char thisByte = 0x0;
         short j = 0;
         while (j < BITES_PER_BYTE) {
-            auto mask = (char) (0x80 >> j); // 1000 0000
+            auto mask = (unsigned char) (0x80 >> j); // 1000 0000
             short target_field_idx = i * (short) BITES_PER_BYTE + j;
             // check eligibility
             if (target_field_idx >= fieldNum) {
@@ -474,14 +565,18 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     if (recordDeleted(buffer, rid)) {
         return -1;
     }
-    // find record_offset and recordLen
-    short record_offset = getRecOffset(buffer, rid.slotNum);
-    short recordLen = getRecLength(buffer, rid.slotNum);
+
+    // recursively looking for the actual record since multiple updates could potentially lead to multiple beacon-guided locators
+    RID realRid;
+    short realRecLen;
+    void * record = getRecord(fileHandle, rid, realRid, realRecLen);
     
-    // read data into record (another block of memory)
-    void * record = getRecordFrom(buffer, record_offset, recordLen);
+    if (record == nullptr) {
+        // after going into the page and recursively looking for the record, it found the record was deleted.
+        return -1;
+    }
     
-    encodeMetaInto(data, record, (short) recordDescriptor.size(), recordLen);
+    encodeMetaInto(data, record, (short) recordDescriptor.size(), realRecLen);
     
     free(buffer);
     free(record);
@@ -515,7 +610,7 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
             // append output
             output += fieldName;
             output += tab;
-            auto mask = (char) (0x80 >> j); // 1000 0000 -> 0100 0000
+            auto mask = (unsigned char) (0x80 >> j); // 1000 0000 -> 0100 0000
             if ((metaByte & mask) == mask) {
                 output += nullstr;
                 output += newline;
@@ -594,10 +689,32 @@ RC kickinRemainingRecords(void * buffer,
     // ready to move nxtRec
     memcpy((char*)buffer + breakPoint, (char*)buffer + nxtRecOffset, (size_t) nxtRecLength);
     short newBreakPoint = breakPoint + nxtRecLength;
+    // don't forget to move pointers in the slot!
+    putRecOffset(buffer, curtSlotIdx, breakPoint);
+    putRecLength(buffer, curtSlotIdx, nxtRecLength);
+    // create the next break
     memset((char*)buffer + newBreakPoint, EMPTY_BYTE, (size_t)breakLength);
     // starting from newBreakPoint, the remaining length equals to the old breakLength
     // after all, breakLength is not gonna change throughout the process
     kickinRemainingRecords(buffer, newBreakPoint, breakLength, slotLeftBound);
+    return 0;
+}
+
+RC deleteRecordAndRearrange(void * buffer, const RID & rid) {
+    // erase record in memory
+    short recLength = getRecLength(buffer, rid.slotNum);
+    short recOffset = getRecOffset(buffer, rid.slotNum);
+    memset((char*)buffer + recOffset, EMPTY_BYTE, (size_t)recLength);
+    
+    // reset slot info, freeOffset, totalslotNum, etc
+    putRecOffset(buffer, rid.slotNum, SLOT_OFFSET_CLEAN);
+    putRecLength(buffer, rid.slotNum, SLOT_RECLEN_CLEAN);
+    putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) - 1);
+    putFreeOffset(buffer, getFreeOffset(buffer) - recLength);
+    
+    // fill up the hole
+    short slotLeftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    kickinRemainingRecords(buffer, recOffset, recLength, slotLeftBound);
     return 0;
 }
 
@@ -619,27 +736,20 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     if (slotNumInvalid(buffer, rid.slotNum)) {
         return -1;
     }
+    // find actual RID
+    RID actRid;
+    short actRecLen;
+    getRecord(fileHandle, rid, actRid, actRecLen);
+    fileHandle.readPage(rid.pageNum, buffer); // reload buffer
     
-    // erase record in memory
-    short recLength = getRecLength(buffer, rid.slotNum);
-    short recOffset = getRecOffset(buffer, rid.slotNum);
-    memset((char*)buffer + recOffset, EMPTY_BYTE, (size_t)recLength);
+    deleteRecordAndRearrange(buffer, actRid);
     
-    // reset slot info, freeOffset, totalslotNum, etc
-    putRecOffset(buffer, rid.slotNum, SLOT_OFFSET_CLEAN);
-    putRecLength(buffer, rid.slotNum, SLOT_RECLEN_CLEAN);
-    putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) - (short)1);
-    putFreeOffset(buffer, getFreeOffset(buffer) - recLength);
-    
-    // fill up the hole
-    short slotLeftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
-    kickinRemainingRecords(buffer, recOffset, recLength, slotLeftBound);
-    
-    fileHandle.writePage(rid.pageNum, buffer);
+    fileHandle.writePage(actRid.pageNum, buffer);
     
     free(buffer);
     return 0;
 }
+
 
 /*
  Implementation Algorithm:
@@ -647,17 +757,110 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
  if the updated record length <= original record length + remaining space, just delete the original and call kickinRemainingRecord() and append the updated one in the end. Don't forget update the slot info.
  else, just delete the original record, allocate 1 byte memory to store a RID pointing to somewhere in another page, and call kickinRemainingRecord(), and put the updated one in the new place.
  
- *** no record has length less than or equal to 1 byte, except those that gets moved to other page after being updated.
- *** those records have length == 1 byte, which stores its next rid.pageNum and rid.slotNum
+ *** A "regular" record takes at least 6 bytes = [ 2 byte short pointer + 4 byte int data] (Varchar type of data includes 4 byte int indicating its length)
+ *** A slot takes 4 bytes
+ *** A page (4096 B) will hold at most [4096 / 1000]  = 409 such records.
+ *** If we use 3 B to hold pageNum, it allows us to append(2^{24}) pages, which is 512GB, large enough.
+ *** If we use 2 B to hold slotNum, it allows us to index (2^{16}) slots, which is 65535, large enough.
+ *** Therefore, 5 B can represent new RID. It is also distinguishable from "regular" records, as it is smaller.
  
+ NOTE: Three types of RID were involved:
+ 1. rid : taken as input
+ 2. actRid : the actual rid indicating where the record is located
+ 3. newRid : the new rid indicating where the updated record is located
  */
 RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
                                         const vector<Attribute> &recordDescriptor,
                                         const void *data,
                                         const RID &rid) {
     
-//    short avaiSpaceLength = getFreeOffset()
+    // check fileHandler
+    if (fileHandleNotExists(fileHandle) || recordDescriptorNotExists(recordDescriptor)) {
+        return -1;
+    }
+    // check page
+    if (pageNumInvalid(fileHandle, rid.pageNum)) {
+        return -1;
+    }
+    // read page in
+    void * buffer = malloc(PAGE_SIZE);
+    fileHandle.readPage(rid.pageNum, buffer);
+    // check slot
+    if (slotNumInvalid(buffer, rid.slotNum)) {
+        return -1;
+    }
+    // check if the record still there
+    if (recordDeleted(buffer, rid)) {
+        return -1;
+    }
+    // prepare upd record
+    short updRecLen;
+    void * updRecord = decodeMetaFrom(data, recordDescriptor, updRecLen);
+    
+    // recursively looking for actual RID and load up actualRecLen
+    RID actRid;
+    short actRecLen;
+    getRecord(fileHandle, rid, actRid, actRecLen);
+    // reload buffer
+    fileHandle.readPage(actRid.pageNum, buffer);
+
+    deleteRecordAndRearrange(buffer, actRid);
+    // freeSpaceOfs after the rearranging the space
+    short freeSpaceOffset = getFreeOffset(buffer);
+    short leftMostSlotOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    short freeSpaceAmount = leftMostSlotOffset - freeSpaceOffset;
+
+//    void * myBuffer = malloc(1024);
+//    memcpy(myBuffer, (char*)buffer + 124, 1024);
+//    void * myData = malloc(117);
+//    encodeMetaInto(myData, myBuffer, 4, 1024);
+////    readRecord(fileHandle, recordDescriptor, myRid, myBuffer);
+//    printRecord(recordDescriptor, myData);
+//    free(myBuffer);
+//    free(myData);
+    
+    if (freeSpaceAmount >= updRecLen) {
+        
+//        cout << "CHECKING updRecord: " << endl;
+//        void* myData = malloc(117);
+//        encodeMetaInto(myData, updRecord, 4, 124);
+//        printRecord(recordDescriptor, myData);
+        
+        // append the updRecord and put new offset/length at the old slot
+        insertIntoPageHelper(buffer, updRecord, freeSpaceOffset, updRecLen, actRid.slotNum);
+        
+        // insertIntoNewPage() AND insertIntoPage() functions handle flush() operation already.
+        fileHandle.writePage(actRid.pageNum, buffer);
+        
+//        cout << "CHECKING inserted record: " << endl;
+//        void* myData = malloc(117);
+//        encodeMetaInto(myData, (char*)buffer + 1148, 4, 124);
+//        printRecord(recordDescriptor, myData);
+        
+    }
+    else {
+        RID newRid;
+        int nxtAvaiPage = findNextAvaiPage(fileHandle, updRecLen);
+        
+        if (nxtAvaiPage == PAGENUM_UNAVAILABLE) {
+            // inside the function, an empty page has been initialized and filled in with records as well as all other info, and flushed to disk.
+            insertIntoNewPage(fileHandle, updRecord, newRid, updRecLen);
+            
+        }
+        else {
+            insertIntoPage(fileHandle, nxtAvaiPage, updRecord, newRid, updRecLen);
+        }
+        // Since not enough space for updRecord, simply put a 5-byte Beacon there, which points to where the updRecord is located.
+        Beacon beacon = compressed(newRid);
+        insertIntoPageHelper(buffer, & beacon, freeSpaceOffset, (short) 5, actRid.slotNum);
+        // if the updated record's size exceeds what the current page could provide, the above code finds another page to store the record. Now, don't forget to flush the current page so that all the current buffer modifications take place.
+        fileHandle.writePage(actRid.pageNum, buffer);
+    }
+    
+    free(updRecord);
+    free(buffer);
     
     return 0;
 }
+
 
