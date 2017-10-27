@@ -2,6 +2,8 @@
 
 #include "cmath"
 #include <iostream>
+#include <unordered_map>
+
 
 const short ATTR_NULL_FLAG = -1;
 const short SLOT_OFFSET_CLEAN = -2;
@@ -51,6 +53,8 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
 }
 
 /* ---------------------------------------------------------------------------------------
+ General
+ 
  Utils
  
  Defined
@@ -224,6 +228,14 @@ short getSlotsLeftBound(const void * buffer,
     return RIGHT_MOST_SLOT_OFFSET - (slotIdx - 1) * sizeof(int);
 }
 
+// draw a distinct line between getTotalSlotsNum() and getTotalUsedSlotsNum().
+// the former doesn't count those slots filled with SLOT_OFFSET_CLEAN and SLOT_RECLEN_CLEAN but the latter does.
+short getTotalUsedSlotsNum(const void * buffer)
+{
+    short leftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    return (short) ((leftBound - RIGHT_MOST_SLOT_OFFSET) / 2 + 1);
+}
+
 bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
     short leftMostOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
     // SlotNum unsigned typed, no need to check < 0
@@ -231,7 +243,7 @@ bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
     return (RIGHT_MOST_SLOT_OFFSET - slotNum * sizeof(int) < leftMostOffset);
 }
 
-bool recordDeleted(void * buffer, const RID & rid) {
+bool recordDeleted(const void * buffer, const RID & rid) {
     short recOffset = getRecOffset(buffer, rid.slotNum);
     short recLength = getRecLength(buffer, rid.slotNum);
     
@@ -246,7 +258,27 @@ bool recordDeleted(void * buffer, const RID & rid) {
     }
 }
 
-void * getRecord(FileHandle & fileHandle,
+bool recordRelocated(const void * buffer, const RID & rid)
+{
+    short recLength = getRecLength(buffer, rid.slotNum);
+    if (recLength == (short)BEACON_SIZE) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+
+void * getRecordStraight(const void * buffer, const RID & rid)
+{
+    short recOfs = getRecOffset(buffer, rid.slotNum);
+    short recLen = getRecLength(buffer, rid.slotNum);
+    void * record = malloc(recLen);
+    memcpy(record, (char*)buffer + recOfs, recLen);
+    return record;
+}
+
+void * getRecordRecursive(FileHandle & fileHandle,
                  const RID & rid,
                  RID & realRid,
                  short & realRecLen) {
@@ -254,15 +286,12 @@ void * getRecord(FileHandle & fileHandle,
     fileHandle.readPage(rid.pageNum, buffer);
     short recOfs = getRecOffset(buffer, rid.slotNum);
     short recLen = getRecLength(buffer, rid.slotNum);
-    //    cout << "inside getRecord()" << endl;
-    //    cout << "recOfs: " << recOfs << endl;
-    //    cout << "recLen: " << recLen << endl;
     if (recordDeleted(buffer, rid)) {
         // missing piece
         void * record = nullptr;
         return record;
     }
-    if (recLen > 5) {
+    if (recLen > (short)BEACON_SIZE) {
         void * record = malloc(recLen);
         memcpy(record, (char*)buffer + recOfs, (size_t) recLen);
         realRid.pageNum = rid.pageNum;
@@ -271,12 +300,12 @@ void * getRecord(FileHandle & fileHandle,
         free(buffer);
         return record;
     }
-    else if (recLen == 5) {
+    else if (recLen == (short)BEACON_SIZE) {
         Beacon beacon;
-        memcpy(& beacon, (char*)buffer + recOfs, 5);
+        memcpy(& beacon, (char*)buffer + recOfs, (size_t)BEACON_SIZE);
         RID newRid = decompressed(beacon);
         free(buffer);
-        return getRecord(fileHandle, newRid, realRid, realRecLen);
+        return getRecordRecursive(fileHandle, newRid, realRid, realRecLen);
     }
     else {
         throw("There shouldn't be a record whose length < 5.");
@@ -284,6 +313,8 @@ void * getRecord(FileHandle & fileHandle,
 }
 
 /* ---------------------------------------------------------------------------------------
+ General
+ 
  Utils
  
  Defined
@@ -308,10 +339,10 @@ short checkForSpace(FileHandle & fileHandle,
 }
 
 
-char* RecordBasedFileManager::decodeMetaFrom(const void* data,
-                                             const vector<Attribute> & recordDescriptor,
-                                             short & recordLen) {
-    
+void * decodeMetaFrom(const void* data,
+                      const vector<Attribute> & recordDescriptor,
+                      short & recordLen)
+{    
     // void* record (pointer to be returned) = malloc(metadata + actualData);
     auto fieldLength = (short) recordDescriptor.size();
     short metaLength = sizeof(short) * fieldLength;
@@ -363,17 +394,14 @@ char* RecordBasedFileManager::decodeMetaFrom(const void* data,
     }
     // now dataLength has been computed, record = [meta + data - n_byte], where dataLength = data - n_byte
     recordLen = metaLength + dataLength - n_bytes;
-//    cout << "Inside of decodeMeta(): " << endl;
-//    cout << "metaLength: " << metaLength << endl;
-//    cout << "dataLength: " << dataLength << endl;
-    void * record = malloc((size_t) recordLen);
     // void * record -> [meta1, meta2,..., data1, data2,...]
+    void * record = malloc(recordLen);
     memcpy(record, meta, (size_t) metaLength);
     // dataLength = n_bytes + actualData_length
     memcpy((char*)record + metaLength, (char*)data + n_bytes, (size_t) (dataLength - n_bytes));
     
     free(meta);
-    return (char*)record;
+    return record;
 }
 
 
@@ -497,18 +525,19 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
 }
 // ---------------------------------------------------------------------------------------
 
-RC RecordBasedFileManager::encodeMetaInto(void * data,
-                                          const void * record,
-                                          const short & fieldNum,
-                                          const short & recordLen) {
+RC encodeMetaInto(void * data,
+                  const void * record,
+                  const vector<Attribute> & recordDescriptor)
+{
+    short fieldNum = recordDescriptor.size();
     // split record into meta and actualData two parts
     short metaLen = sizeof(short) * fieldNum;
-    void * actualData = malloc((size_t) (recordLen - metaLen));
-    memcpy(actualData, (char*)record + metaLen, (size_t) (recordLen - metaLen));
     
     short i = 0;
     auto n_bytes = (short) ceil((float)fieldNum / BITES_PER_BYTE);
     void * encodedMeta = malloc((size_t) n_bytes);
+    short dataLength = n_bytes;
+    
     while (i < n_bytes) {
         char thisByte = 0x0;
         short j = 0;
@@ -519,15 +548,23 @@ RC RecordBasedFileManager::encodeMetaInto(void * data,
             if (target_field_idx >= fieldNum) {
                 break;
             }
-            short thisField;
-            memcpy(&thisField, (char*)record + target_field_idx * sizeof(short), sizeof(short));
-            if (thisField == ATTR_NULL_FLAG) {
+            
+            short curtFieldEnds;
+            memcpy(& curtFieldEnds, (char*)record + target_field_idx * sizeof(short), sizeof(short));
+            
+            if (curtFieldEnds == ATTR_NULL_FLAG) {
                 // 0000 0000 | 1000 0000 -> 1000 0000
                 // 1000 0000 | 0100 0000 -> 1100 0000
+                // if NULL bit is turned on, mask thisByte
                 thisByte = (thisByte | mask);
+            }
+            else {
+                // else update dataLength with record meta
+                dataLength = curtFieldEnds;
             }
             j++;
         }
+        // burn thisByte into encodedMeta
         memcpy((char*)encodedMeta + i, &thisByte, sizeof(char));
         i++;
     }
@@ -535,9 +572,8 @@ RC RecordBasedFileManager::encodeMetaInto(void * data,
     memcpy(data, encodedMeta, (size_t) n_bytes);
     free(encodedMeta);
     // fill in actual data
-    memcpy((char*)data + n_bytes, actualData, (size_t) (recordLen - metaLen));
-    free(actualData);
-    
+    memcpy((char*)data + n_bytes, (char*)record + metaLen, (size_t) (dataLength - n_bytes));
+
     return 0;
 }
 
@@ -569,14 +605,14 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle,
     // recursively looking for the actual record since multiple updates could potentially lead to multiple beacon-guided locators
     RID realRid;
     short realRecLen;
-    void * record = getRecord(fileHandle, rid, realRid, realRecLen);
+    void * record = getRecordRecursive(fileHandle, rid, realRid, realRecLen);
     
     if (record == nullptr) {
         // after going into the page and recursively looking for the record, it found the record was deleted.
         return -1;
     }
     
-    encodeMetaInto(data, record, (short) recordDescriptor.size(), realRecLen);
+    encodeMetaInto(data, record, recordDescriptor);
     
     free(buffer);
     free(record);
@@ -739,7 +775,7 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     // find actual RID
     RID actRid;
     short actRecLen;
-    getRecord(fileHandle, rid, actRid, actRecLen);
+    getRecordRecursive(fileHandle, rid, actRid, actRecLen);
     fileHandle.readPage(rid.pageNum, buffer); // reload buffer
     
     deleteRecordAndRearrange(buffer, actRid);
@@ -800,7 +836,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     // recursively looking for actual RID and load up actualRecLen
     RID actRid;
     short actRecLen;
-    getRecord(fileHandle, rid, actRid, actRecLen);
+    getRecordRecursive(fileHandle, rid, actRid, actRecLen);
     // reload buffer
     fileHandle.readPage(actRid.pageNum, buffer);
 
@@ -809,34 +845,14 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     short freeSpaceOffset = getFreeOffset(buffer);
     short leftMostSlotOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
     short freeSpaceAmount = leftMostSlotOffset - freeSpaceOffset;
-
-//    void * myBuffer = malloc(1024);
-//    memcpy(myBuffer, (char*)buffer + 124, 1024);
-//    void * myData = malloc(117);
-//    encodeMetaInto(myData, myBuffer, 4, 1024);
-////    readRecord(fileHandle, recordDescriptor, myRid, myBuffer);
-//    printRecord(recordDescriptor, myData);
-//    free(myBuffer);
-//    free(myData);
     
     if (freeSpaceAmount >= updRecLen) {
-        
-//        cout << "CHECKING updRecord: " << endl;
-//        void* myData = malloc(117);
-//        encodeMetaInto(myData, updRecord, 4, 124);
-//        printRecord(recordDescriptor, myData);
         
         // append the updRecord and put new offset/length at the old slot
         insertIntoPageHelper(buffer, updRecord, freeSpaceOffset, updRecLen, actRid.slotNum);
         
         // insertIntoNewPage() AND insertIntoPage() functions handle flush() operation already.
         fileHandle.writePage(actRid.pageNum, buffer);
-        
-//        cout << "CHECKING inserted record: " << endl;
-//        void* myData = malloc(117);
-//        encodeMetaInto(myData, (char*)buffer + 1148, 4, 124);
-//        printRecord(recordDescriptor, myData);
-        
     }
     else {
         RID newRid;
@@ -852,7 +868,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         }
         // Since not enough space for updRecord, simply put a 5-byte Beacon there, which points to where the updRecord is located.
         Beacon beacon = compressed(newRid);
-        insertIntoPageHelper(buffer, & beacon, freeSpaceOffset, (short) 5, actRid.slotNum);
+        insertIntoPageHelper(buffer, & beacon, freeSpaceOffset, (short) BEACON_SIZE, actRid.slotNum);
         // if the updated record's size exceeds what the current page could provide, the above code finds another page to store the record. Now, don't forget to flush the current page so that all the current buffer modifications take place.
         fileHandle.writePage(actRid.pageNum, buffer);
     }
@@ -862,5 +878,415 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     
     return 0;
 }
+
+short fieldLenToMetaLen(const unsigned long & fieldLen) {
+    return (short) sizeof(short) * fieldLen;
+}
+short getAttrOfsFromDecodedRec(const int & i,
+                               const void * record,
+                               const unsigned long & fieldLen) {
+    if (i >= fieldLen || i < 0) {
+        throw("Incorrect field index.");
+    }
+    if (i == 0) {
+        short metaLen = fieldLenToMetaLen(fieldLen);
+        return metaLen;
+    }
+    else {
+        short offset;
+        memcpy(&offset, (char*)record + (i - 1) * sizeof(short), sizeof(short));
+        return offset;
+    }
+}
+short getAttrLenFromDecodedRec(const int & i,
+                               const void * record,
+                               const unsigned long & fieldLen) {
+    if (i >= fieldLen || i < 0) {
+        throw("Incorrect field index.");
+    }
+    if (i == 0) {
+        short metaLen = fieldLenToMetaLen(fieldLen);
+        short secRecOfs;
+        memcpy(&secRecOfs, record, sizeof(short));
+        return (secRecOfs - metaLen);
+    }
+    else {
+        short prevOfs;
+        short thisOfs;
+        memcpy(&prevOfs, (char*)record + (i - 1) * sizeof(short), sizeof(short));
+        memcpy(&thisOfs, (char*)record + i * sizeof(short), sizeof(short));
+        return (thisOfs - prevOfs);
+    }
+}
+
+RC readAttributeNo(const int i, const void * record, const unsigned long & fieldLen, void * data) {
+    short offset = getAttrOfsFromDecodedRec(i, record, fieldLen);
+    short length = getAttrLenFromDecodedRec(i, record, fieldLen);
+    memcpy(data, (char*)record + offset, (size_t)length);
+    return 0;
+}
+
+RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
+                                         const vector<Attribute> &recordDescriptor,
+                                         const RID &rid,
+                                         const string &attributeName,
+                                         void *data) {
+    data = nullptr;
+    
+    // 1. readRecord() checks everything, including fileHandle, recordDescriptor, rid and if the record still exists.
+    // 2. readRecord() loads up the below ptr with encoded record
+    void * encodedRecord = nullptr;
+    if (readRecord(fileHandle, recordDescriptor, rid, encodedRecord) == -1) {
+        return -1;
+    }
+    short recordLen;
+    void * record = decodeMetaFrom(encodedRecord, recordDescriptor, recordLen);
+    const unsigned long fieldLen = recordDescriptor.size();
+    for(int i = 0; i < fieldLen; i++) {
+        if (recordDescriptor[i].name == attributeName) {
+            readAttributeNo(i, record, fieldLen, data);
+        }
+    }
+    if (data == nullptr) {
+        throw("The given attribute was not found!");
+    }
+    
+    free(encodedRecord);
+    free(record);
+    return 0;
+}
+
+
+RC RecordBasedFileManager::scan(FileHandle &fileHandle,
+                                const vector<Attribute> &recordDescriptor,
+                                const string &conditionAttribute,
+                                const CompOp compOp,
+                                // comparision type such as "<" and "="
+                                const void *value,
+                                // used in the comparison
+                                const vector<string> &attributeNames,
+                                // a list of projected attributes
+                                RBFM_ScanIterator &rbfm_ScanIterator)
+{
+    rbfm_ScanIterator.initialize(fileHandle, recordDescriptor, conditionAttribute, compOp, value, attributeNames);
+    return 0;
+}
+
+// ------------------------------------------------------------
+
+RC RBFM_ScanIterator::initialize(FileHandle &fileHandle,
+                                 const vector<Attribute> &recordDescriptor,
+                                 const string &conditionAttribute,
+                                 const CompOp compOp,
+                                 // comparision type such as "<" and "="
+                                 const void *value,
+                                 // used in the comparison
+                                 const vector<string> &attributeNames)
+                                 // a list of projected attributes
+{
+    // add checking statements ?
+    // init public variables global to this class
+    this->fileHandle = fileHandle;
+    this->recordDescriptor = recordDescriptor;
+    this->conditionAttribute = conditionAttribute;
+    this->compOp = compOp;
+    this->value = value;
+    
+    this->attrMap = attrMap;
+    
+    for(int i = 0; i < recordDescriptor.size(); i++) {
+        this->attrMap[recordDescriptor[i].name] = i;
+    }
+
+    this->curtPageNum = 0;
+    this->curtSlotNum = 0;
+    return 0;
+}
+
+
+RC RBFM_ScanIterator::loadNxtRecOnSlot(RID & rid,
+                                       void * decodedRec,
+                                       const void * buffer)
+{
+    short totUsedSlotsNum = getTotalUsedSlotsNum(buffer);
+    while (this->curtSlotNum < totUsedSlotsNum)
+    {
+        // update rid every iteration!
+        rid.slotNum = this->curtSlotNum;
+        if (recordDeleted(buffer, rid) || recordRelocated(buffer, rid)) {
+            this->curtSlotNum++;
+            continue;
+        }
+        void * record = getRecordStraight(buffer, rid);
+        // TODO can I assign ptrs like this?
+        decodedRec = record;
+        // fetch record successful!
+        return 0;
+    }
+    // failed to fetch next record on this page
+    return -1;
+    
+}
+
+RC RBFM_ScanIterator::loadNxtRecOnPage(RID &rid,
+                                       void * decodedRec)
+{
+    unsigned totalPageNum = this->fileHandle.getNumberOfPages();
+    while (this->curtPageNum < totalPageNum)
+    {
+        void * buffer = malloc(PAGE_SIZE);
+        this->fileHandle.readPage(this->curtPageNum, buffer);
+        rid.pageNum = curtPageNum;
+        // rid.slotNum should be filled while executing loadNxtRecOnSlot()
+        
+        RC rc = loadNxtRecOnSlot(rid, decodedRec, buffer);
+        
+        // didn't find a record on curt page
+        if (rc == -1) {
+            this->curtPageNum++;
+            continue;
+        }
+        // void * decodedRec has been loaded
+        free(buffer);
+        return 0;
+    }
+    // failed to load the next record because of EOF
+    return -1;
+}
+
+
+RC loadDataFor(const int fieldIdx,
+               void * projectRec,
+               const void * decodedRec,
+               short & proRecLen,
+               const unsigned long & allAttrNum)
+{
+    short offset = getAttrOfsFromDecodedRec(fieldIdx, decodedRec, allAttrNum);
+    short recLen = getAttrLenFromDecodedRec(fieldIdx, decodedRec, allAttrNum);
+    memcpy((char*)projectRec + proRecLen, (char*)decodedRec + offset, (size_t)recLen);
+    proRecLen += recLen;
+    return 0;
+}
+
+RC turnOnBit(void * targetMeta,
+             const unsigned long & targetCounter)
+{
+    short byte = targetCounter / BITES_PER_BYTE;
+    short bit = targetCounter % BITES_PER_BYTE;
+    
+    unsigned char targetMetaByte;
+    memcpy(& targetMetaByte, (char*)targetMeta + byte, 1);
+    
+    auto mask = (unsigned char) (0x80 >> bit);
+    
+    targetMetaByte = (targetMetaByte | mask);
+    memcpy((char*)targetMeta + byte, & targetMetaByte, 1);
+    
+    return 0;
+}
+RC loadMetaFor(const int & fieldIdx,
+               void * targetMeta,
+               const void * allMeta,
+               const unsigned long & targetCounter)
+{
+    short byte = fieldIdx / BITES_PER_BYTE;
+    unsigned char allMetaByte;
+    memcpy(& allMetaByte, (char*)allMeta + byte, 1);
+    
+    short bit = fieldIdx % BITES_PER_BYTE;
+    auto mask = (unsigned char) (0x80 >> bit);
+
+    if ((allMetaByte & mask) == mask) {
+        turnOnBit(targetMeta, targetCounter);
+    }
+    
+    return 0;
+}
+
+bool compareInt(const void * attrData,
+                const CompOp & compOp,
+                const void * value)
+{
+    switch (compOp) {
+        case EQ_OP:
+            return (*(int*)attrData == *(int*)value);
+        case LT_OP:
+            return (*(int*)attrData < *(int*)value);
+        case LE_OP:
+            return (*(int*)attrData <= *(int*)value);
+        case GT_OP:
+            return (*(int*)attrData > *(int*)value);
+        case GE_OP:
+            return (*(int*)attrData >= *(int*)value);
+        case NE_OP:
+            return (*(int*)attrData != *(int*)value);
+        case NO_OP: // just to get rid of warning, it shouldn't be screened in earlier phase
+            return true;
+        default:
+            throw("Unrecognized type of CompOp found!");
+            break;
+    }
+}
+bool compareReal(const void * attrData,
+                const CompOp & compOp,
+                const void * value)
+{
+    switch (compOp) {
+        case EQ_OP:
+            return (*(float*)attrData == *(float*)value);
+        case LT_OP:
+            return (*(float*)attrData < *(float*)value);
+        case LE_OP:
+            return (*(float*)attrData <= *(float*)value);
+        case GT_OP:
+            return (*(float*)attrData > *(float*)value);
+        case GE_OP:
+            return (*(float*)attrData >= *(float*)value);
+        case NE_OP:
+            return (*(float*)attrData != *(float*)value);
+        case NO_OP: // just to get rid of warning, it shouldn't be screened in earlier phase
+            return true;
+        default:
+            throw("Unrecognized type of CompOp found!");
+            break;
+    }
+}
+bool compareVarChar(const void * attrData,
+                const CompOp & compOp,
+                const void * value)
+{
+    string attrStr = getStringFrom(attrData, 0);
+    string valueStr = getStringFrom(value, 0);
+    switch (compOp) {
+        case EQ_OP:
+            return (attrStr.compare(valueStr) == 0);
+        case LT_OP:
+            return (attrStr.compare(valueStr) < 0);
+        case LE_OP:
+            return (attrStr.compare(valueStr) <= 0);
+        case GT_OP:
+            return (attrStr.compare(valueStr) > 0);
+        case GE_OP:
+            return (attrStr.compare(valueStr) >= 0);
+        case NE_OP:
+            return (attrStr.compare(valueStr) != 0);
+        case NO_OP: // just to get rid of warning, it shouldn't be screened in earlier phase
+            return true;
+        default:
+            throw("Unrecognized type of CompOp found!");
+            break;
+    }
+}
+bool satisfyCondition(const void * decodedRec,
+                      const vector<Attribute> & recordDescriptor,
+                      const unordered_map<string, int> & attrMap,
+                      const string & conditionAttribute,
+                      const CompOp & compOp,
+                      const void * value)
+{
+    if (conditionAttribute.compare(string("")) == 0) {
+        // no condition specified
+        return true;
+    }
+    if (compOp == NO_OP) {
+        // no compOp specified
+        return true;
+    }
+    if (value == NULL || value == nullptr) {
+        // no comp value specified
+        return true;
+    }
+    // access mode: attrMap[conditionAttribute] is not allowed when attrMap is const
+    int fieldIdx = attrMap.at(conditionAttribute);
+    void * attrData = malloc(PAGE_SIZE);
+    readAttributeNo(fieldIdx, decodedRec, recordDescriptor.size(), attrData);
+    
+    switch (recordDescriptor[fieldIdx].type) {
+        case TypeInt:
+            return compareInt(attrData, compOp, value);
+        case TypeReal:
+            return compareReal(attrData, compOp, value);
+        case TypeVarChar:
+            return compareVarChar(attrData, compOp, value);
+        default:
+            throw("Other type of attribute than TypeInt, TypeReal, TypeVarChar.");
+            break;
+    }
+}
+
+RC projectAttributeOnto(void * projectRec,
+                        const void * decodedRec,
+                        const vector<Attribute> & recordDescriptor,
+                        const unordered_map<string, int> & attrMap)
+{
+    void * encodedRec = malloc(PAGE_SIZE);
+    encodeMetaInto(encodedRec, decodedRec, recordDescriptor);
+    // get its encoded version and put into allMeta
+    const unsigned long allAttrNum = recordDescriptor.size();
+    short a_bytes = ceil((double)allAttrNum / BITES_PER_BYTE);
+    void * allMeta = malloc((size_t) a_bytes);
+    memcpy(allMeta, encodedRec, (size_t) a_bytes);
+    
+    // unsigned char targetMeta[t_bytes] -> variable size object cannot be initialized : everything initialized like this sits on stack and their size must be figured out during compile time
+    // on the other hand, you can use "new" to initialize a char array with variable size in heap
+    const unsigned long targetAttrNum = attrMap.size();
+    short t_bytes = ceil((double)targetAttrNum / BITES_PER_BYTE);
+    void * targetMeta = malloc((size_t) t_bytes);
+    memset(targetMeta, 0, (size_t) t_bytes);
+    
+    short proRecLen = t_bytes; // where to start appending field data
+    unsigned long targetCounter = 0;
+    for(int idx = 0; idx < allAttrNum; idx++) {
+        // check if the attr is in the project list
+        string attrKey = recordDescriptor[idx].name;
+        if (attrMap.count(attrKey) == 0) {
+            continue;
+        }
+        // load data
+        targetCounter++;
+        loadMetaFor(idx, targetMeta, allMeta, targetCounter);
+        loadDataFor(idx, projectRec, decodedRec, proRecLen, allAttrNum);
+        // projectRec and proRecLen grows
+    }
+    memcpy(projectRec, targetMeta, t_bytes);
+    
+    free(encodedRec);
+    free(allMeta);
+    free(targetMeta);
+    return 0;
+}
+
+// load up rid and data
+RC RBFM_ScanIterator::getNextRecord(RID &rid,
+                                    void *data)
+{
+    // get some space
+    void * decodedRec = malloc(PAGE_SIZE);
+    do {
+        // fetch the next decoded record
+        RC rc1 = loadNxtRecOnPage(rid, decodedRec);
+        if (rc1 == -1) {
+            return RBFM_EOF;
+        }
+    // check if the attr satisfy the select criteria
+    } while (!satisfyCondition(decodedRec,
+                               this->recordDescriptor,
+                               this->attrMap,
+                               this->conditionAttribute,
+                               this->compOp,
+                               this->value));
+    
+    
+    // project required attribute to data
+    projectAttributeOnto(data,
+                         decodedRec,
+                         this->recordDescriptor,
+                         this->attrMap);
+    return 0;
+};
+
+
+
+
 
 

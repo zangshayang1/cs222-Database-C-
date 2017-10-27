@@ -7,6 +7,7 @@
 #include <vector>
 #include <climits>
 #include "pfm.h"
+#include <unordered_map>
 
 // 4096
 #define FREE_SPACE_INFO_POS 4094
@@ -16,6 +17,8 @@
 #define RIGHT_MOST_SLOT_OFFSET 4088
 
 #define BITES_PER_BYTE 8
+
+#define BEACON_SIZE 5
 
 using namespace std;
 
@@ -72,14 +75,39 @@ typedef enum { EQ_OP = 0, // no condition// =
 
 class RBFM_ScanIterator {
 public:
+    // declare public variables global to this class
+    FileHandle fileHandle;
+    vector<Attribute> recordDescriptor;
+    string conditionAttribute;
+    CompOp compOp;
+    const void * value;
+    unordered_map<string, int> attrMap;
+    RID rid;
+    PageNum curtPageNum;
+    SlotNum curtSlotNum;
+    
     RBFM_ScanIterator() {};
     ~RBFM_ScanIterator() {};
     
     // Never keep the results in the memory. When getNextRecord() is called,
     // a satisfying record needs to be fetched from the file.
     // "data" follows the same format as RecordBasedFileManager::insertRecord().
-    RC getNextRecord(RID &rid, void *data) { return RBFM_EOF; };
+    RC getNextRecord(RID &rid, void *data);
     RC close() { return -1; };
+    
+    RC initialize(FileHandle &fileHandle,
+                  const vector<Attribute> &recordDescriptor,
+                  const string &conditionAttribute,
+                  const CompOp compOp,
+                  // comparision type such as "<" and "="
+                  const void *value,
+                  // used in the comparison
+                  const vector<string> &attributeNames);
+                  // a list of projected attributes
+private:
+    RC loadNxtRecOnPage(RID &rid, void * data);
+    RC loadNxtRecOnSlot(RID &rid, void * data, const void * buffer);
+    
 };
 
 
@@ -157,15 +185,7 @@ private:
     static RecordBasedFileManager *_rbf_manager;
     
     PagedFileManager *_pbf_manager;
-    
-    char* decodeMetaFrom(const void* data,
-                         const vector<Attribute> &recordDescriptor,
-                         short int & recordLen);
 
-    RC encodeMetaInto(void * data,
-                      const void * record,
-                      const short int & fieldNum,
-                      const short int & recordLen);
 };
 
 #endif /* rbfm_hpp */
