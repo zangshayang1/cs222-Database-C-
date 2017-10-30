@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <iostream>
 
-PagedFileManager* PagedFileManager::_pf_manager = 0;
+PagedFileManager* PagedFileManager::_pf_manager = nullptr;
 
 PagedFileManager* PagedFileManager::instance()
 {
@@ -17,7 +17,6 @@ PagedFileManager* PagedFileManager::instance()
 
 PagedFileManager::PagedFileManager()
 {
-    _pf_manager = NULL;
 }
 
 // ~myfunc() : does the opposite as the myfunc() does

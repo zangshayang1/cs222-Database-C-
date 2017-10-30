@@ -24,13 +24,12 @@ RecordBasedFileManager* RecordBasedFileManager::instance()
 
 RecordBasedFileManager::RecordBasedFileManager()
 {
-    _rbf_manager = nullptr;
     _pbf_manager = PagedFileManager::instance();
 }
 
 RecordBasedFileManager::~RecordBasedFileManager()
 {
-    delete _rbf_manager;
+    delete & _rbf_manager;
 }
 
 /*
@@ -51,6 +50,11 @@ RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHand
 RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
     return _pbf_manager->closeFile(fileHandle);
 }
+
+bool RecordBasedFileManager::fileExists(const string & filename) {
+    return _pbf_manager->fileExists(filename);
+}
+
 
 /* ---------------------------------------------------------------------------------------
  General
@@ -228,14 +232,6 @@ short getSlotsLeftBound(const void * buffer,
     return RIGHT_MOST_SLOT_OFFSET - (slotIdx - 1) * sizeof(int);
 }
 
-// draw a distinct line between getTotalSlotsNum() and getTotalUsedSlotsNum().
-// the former doesn't count those slots filled with SLOT_OFFSET_CLEAN and SLOT_RECLEN_CLEAN but the latter does.
-short getTotalUsedSlotsNum(const void * buffer)
-{
-    short leftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
-    return (short) ((leftBound - RIGHT_MOST_SLOT_OFFSET) / 2 + 1);
-}
-
 bool slotNumInvalid(const void * buffer, const SlotNum & slotNum) {
     short leftMostOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
     // SlotNum unsigned typed, no need to check < 0
@@ -322,6 +318,23 @@ void * getRecordRecursive(FileHandle & fileHandle,
  Above
  --------------------------------------------------------------------------------------- */
 
+// draw a distinct line between getTotalSlotsNum() and getTotalUsedSlotsNum().
+// the former doesn't count those slots filled with SLOT_OFFSET_CLEAN and SLOT_RECLEN_CLEAN but the latter does.
+short getTotalUsedSlotsNum(const void * buffer)
+{
+    short leftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    return (short) ((leftBound - RIGHT_MOST_SLOT_OFFSET) / 2 + 1);
+}
+// these two methods are defined for different purpose:
+// 1. the above one is defined as a helper function so it can be used by RBFM_ScanIterator::loadNxtRecOnSlot()
+// 2. the below one is defined as a public function so it can be used in RM module
+// Common thing is they are built on top of two utility functions defined in this module.
+short RecordBasedFileManager::getTotalUsedSlotsNum(const void * buffer)
+{
+    short leftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    return (short) ((leftBound - RIGHT_MOST_SLOT_OFFSET) / 2 + 1);
+}
+
 // This func checks the absolute amount of freespace on the page pointed by fileHandle + pageNum
 // freeSpace -> itself is a pointer variable pointing to the address passed in, in our case, [11]
 short checkForSpace(FileHandle & fileHandle,
@@ -339,9 +352,9 @@ short checkForSpace(FileHandle & fileHandle,
 }
 
 
-void * decodeMetaFrom(const void* data,
-                      const vector<Attribute> & recordDescriptor,
-                      short & recordLen)
+void * RecordBasedFileManager::decodeMetaFrom(const void* data,
+                                              const vector<Attribute> & recordDescriptor,
+                                              short & recordLen)
 {    
     // void* record (pointer to be returned) = malloc(metadata + actualData);
     auto fieldLength = (short) recordDescriptor.size();
@@ -753,6 +766,7 @@ RC deleteRecordAndRearrange(void * buffer, const RID & rid) {
     kickinRemainingRecords(buffer, recOffset, recLength, slotLeftBound);
     return 0;
 }
+
 
 RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
                                         const vector<Attribute> & recordDescriptor,

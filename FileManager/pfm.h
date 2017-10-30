@@ -29,13 +29,15 @@ public:
     RC openFile      (const string &fileName, FileHandle &fileHandle);    // Open a file
     RC closeFile     (FileHandle &fileHandle);                            // Close a file
     
+    bool fileExists(const string &filename);
+    
 protected:
     PagedFileManager();                                                   // Constructor
     ~PagedFileManager();                                                  // Destructor
     
 private:
     static PagedFileManager *_pf_manager;
-    bool fileExists(const string &filename);
+    
 };
 
 

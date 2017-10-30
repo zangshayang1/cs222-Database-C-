@@ -37,7 +37,7 @@ typedef struct
 } Beacon;
 
 // Attribute
-typedef enum { TypeInt = 0, TypeReal, TypeVarChar } AttrType;
+typedef enum { TypeInt = 0, TypeReal = 1, TypeVarChar = 2 } AttrType;
 
 typedef unsigned AttrLength;
 
@@ -124,6 +124,10 @@ public:
     
     RC closeFile(FileHandle &fileHandle);
     
+    bool fileExists(const string & filename);
+    
+    short getTotalUsedSlotsNum(const void * buffer);
+    
     //  Format of the data passed into the function is the following:
     //  [n byte-null-indicators for y fields] [actual value for the first field] [actual value for the second field] ...
     //  1) For y fields, there is n-byte-null-indicators in the beginning of each record.
@@ -174,8 +178,13 @@ public:
             const vector<string> &attributeNames, // a list of projected attributes
             RBFM_ScanIterator &rbfm_ScanIterator);
     
-public:
+    void * decodeMetaFrom(const void* data,
+                          const vector<Attribute> & recordDescriptor,
+                          short & recordLen);
     
+//    RC encodeMetaInto(void * data,
+//                      const void * record,
+//                      const vector<Attribute> & recordDescriptor);
 protected:
     RecordBasedFileManager();
     
