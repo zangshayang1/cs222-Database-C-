@@ -17,6 +17,7 @@ typedef struct {
     string tableName;
     string fileName;
     int tableMode;
+    RID tRid;
 } Table;
 
 typedef struct {
@@ -26,6 +27,7 @@ typedef struct {
     AttrLength columnLength;
     int columnPosition;
     int columnMode;
+    RID cRid;
 } Column;
 
 // RM_ScanIterator is an iteratr to go through tuples

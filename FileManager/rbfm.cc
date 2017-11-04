@@ -102,7 +102,7 @@ string getStringFrom(const void * data,
     memcpy(&strLen, (char*)data + offset, sizeof(int));
     // no Varchar entry takes memory more than 1 page
     char strVal[PAGE_SIZE];
-    memcpy(&strVal, (char*)data + offset + sizeof(int), (size_t) strLen);
+    memcpy(strVal, (char*)data + offset + sizeof(int), (size_t) strLen);
     strVal[strLen] = '\0';
     return string(strVal);
 }
@@ -183,7 +183,7 @@ Beacon compressed(const RID & rid) {
     // beacon.cpsdPageNum -> unsigned char[3]
     memcpy(beacon.cpsdPageNum, &rid.pageNum, 3);
     // beacon.cpsdSlotNum -> unsigned char[2]
-    memcpy(beacon.cpsdSlotNum, &rid.slotNum, 3);
+    memcpy(beacon.cpsdSlotNum, &rid.slotNum, 2);
 
     return beacon;
 }
@@ -214,7 +214,8 @@ bool pageNumInvalid(FileHandle & fileHandle, const PageNum & pageNum) {
 short getSlotsLeftBound(const void * buffer,
                         const short & totSlots) {
     if (totSlots == 0) {
-        return (RIGHT_MOST_SLOT_OFFSET + sizeof(int)); // 4092
+        // handle empty page
+        return RIGHT_MOST_SLOT_OFFSET; // 4092
     }
     SlotNum slotIdx = 0;
     short counter = 0;
@@ -288,10 +289,10 @@ bool recordRelocated(const void * buffer, const RID & rid)
     }
 }
 
-void * getRecordStraight(const void * buffer, const RID & rid)
+void * getRecordStraight(const void * buffer, const RID & rid, short & recLen)
 {
+    recLen = getRecLength(buffer, rid.slotNum); // find out the length
     short recOfs = getRecOffset(buffer, rid.slotNum);
-    short recLen = getRecLength(buffer, rid.slotNum);
     void * record = malloc(recLen);
     memcpy(record, (char*)buffer + recOfs, recLen);
     return record;
@@ -382,7 +383,7 @@ RC printDecoded(const vector<Attribute> &recordDescriptor,
 short getTotalUsedSlotsNum(const void * buffer)
 {
     short leftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
-    return (short) ((RIGHT_MOST_SLOT_OFFSET - leftBound) / 2 + 1);
+    return (short) ((RIGHT_MOST_SLOT_OFFSET - leftBound) / sizeof(int) + 1);
 }
 // these two methods are defined for different purpose:
 // 1. the above one is defined as a helper function so it can be used by RBFM_ScanIterator::loadNxtRecOnSlot()
@@ -401,13 +402,10 @@ short checkForSpace(FileHandle & fileHandle,
     void* buffer = malloc(PAGE_SIZE);
     fileHandle.readPage(pageNum, buffer);
     short freeSpaceOffset = getFreeOffset(buffer);
-    short totalSlots = getTotalSlotsNum(buffer);
-    
-    short spaceLeftEmpty = SLOT_NUM_INFO_POS - sizeof(int) * totalSlots - freeSpaceOffset;
-    
+    short leftMostSlotOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    short freeSpaceAmount = leftMostSlotOffset - freeSpaceOffset;
     free(buffer);
-    
-    return spaceLeftEmpty;
+    return freeSpaceAmount;
 }
 
 
@@ -474,9 +472,6 @@ void * RecordBasedFileManager::decodeMetaFrom(const void* data,
     // dataLength = n_bytes + actualData_length
     memcpy((char*)record + metaLength, (char*)data + n_bytes, (size_t) (dataLength - n_bytes));
     
-    cout << "print in decodeMetaFrom(): " << endl;
-    printDecoded(recordDescriptor, record);
-    
     free(meta);
     return record;
 }
@@ -515,6 +510,7 @@ RC insertIntoPageHelper(void * buffer,
     // fill in slot info
     putRecOffset(buffer, slotIdx, recOffset);
     putRecLength(buffer, slotIdx, recordLen);
+    
     // fill in record data
     memcpy((char*)buffer + recOffset, record, (size_t) recordLen);
     // fill in slotNum
@@ -585,8 +581,6 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle,
     short recordLen;
     // you cannot pass in a uninitialized pointer
     void* record = decodeMetaFrom(data, recordDescriptor, recordLen);
-    
-    printDecoded(recordDescriptor, record);
     
     int nxtAvaiPage = findNextAvaiPage(fileHandle, recordLen);
     if (nxtAvaiPage == PAGENUM_UNAVAILABLE) {
@@ -798,7 +792,6 @@ RC kickinRemainingRecords(void * buffer,
     }
     // eligibility check : actually found nxtRecLength
     if (nxtRecLength == SLOT_RECLEN_CLEAN) {
-//        cout << "Didn't find the slot storing record offset: " << nxtRecOffset << endl;
         throw("Didn't find the slot storing nxtRecOffset.");
     }
     // ready to move nxtRec
@@ -827,8 +820,13 @@ RC deleteRecordAndRearrange(void * buffer, const RID & rid) {
     putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) - 1);
     putFreeOffset(buffer, getFreeOffset(buffer) - recLength);
     
-    // fill up the hole
-    short slotLeftBound = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
+    short totalSlots = getTotalSlotsNum(buffer);
+    if (totalSlots == 0) {
+        // the page has become empty
+        return 0;
+    }
+    // else fill up the hole
+    short slotLeftBound = getSlotsLeftBound(buffer, totalSlots);
     kickinRemainingRecords(buffer, recOffset, recLength, slotLeftBound);
     return 0;
 }
@@ -856,7 +854,8 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     RID actRid;
     short actRecLen;
     getRecordRecursive(fileHandle, rid, actRid, actRecLen);
-    fileHandle.readPage(rid.pageNum, buffer); // reload buffer
+    
+    fileHandle.readPage(actRid.pageNum, buffer); // reload buffer with actRid
     
     deleteRecordAndRearrange(buffer, actRid);
     
@@ -923,8 +922,7 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
     deleteRecordAndRearrange(buffer, actRid);
     // freeSpaceOfs after the rearranging the space
     short freeSpaceOffset = getFreeOffset(buffer);
-    short leftMostSlotOffset = getSlotsLeftBound(buffer, getTotalSlotsNum(buffer));
-    short freeSpaceAmount = leftMostSlotOffset - freeSpaceOffset;
+    short freeSpaceAmount = checkForSpace(fileHandle, actRid.pageNum);
     
     if (freeSpaceAmount >= updRecLen) {
         
@@ -935,13 +933,12 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         fileHandle.writePage(actRid.pageNum, buffer);
     }
     else {
-        RID newRid;
         int nxtAvaiPage = findNextAvaiPage(fileHandle, updRecLen);
         
+        RID newRid;
         if (nxtAvaiPage == PAGENUM_UNAVAILABLE) {
             // inside the function, an empty page has been initialized and filled in with records as well as all other info, and flushed to disk.
             insertIntoNewPage(fileHandle, updRecord, newRid, updRecLen);
-            
         }
         else {
             insertIntoPage(fileHandle, nxtAvaiPage, updRecord, newRid, updRecLen);
@@ -1094,7 +1091,8 @@ RC RBFM_ScanIterator::initialize(FileHandle &fileHandle,
 
 RC RBFM_ScanIterator::loadNxtRecOnSlot(RID & rid,
                                        void * decodedRec,
-                                       const void * buffer)
+                                       const void * buffer,
+                                       const vector<Attribute> & recordDescriptor)
 {
     short totUsedSlotsNum = getTotalUsedSlotsNum(buffer);
     while (this->curtSlotNum < totUsedSlotsNum)
@@ -1105,10 +1103,13 @@ RC RBFM_ScanIterator::loadNxtRecOnSlot(RID & rid,
             this->curtSlotNum++;
             continue;
         }
-        void * record = getRecordStraight(buffer, rid);
-        // TODO can I assign ptrs like this?
-        decodedRec = record;
-        // fetch record successful!
+        short recLen;
+        void * record = getRecordStraight(buffer, rid, recLen);
+        // decodeRec = record is NOT going to do the job!
+        memcpy(decodedRec, record, recLen);
+        // fetch record successful! Now free the holder.
+        free(record);
+        
         this->curtSlotNum++;
         // advance to next slotNum if getNextRecord() gets called again.
         return 0;
@@ -1119,7 +1120,8 @@ RC RBFM_ScanIterator::loadNxtRecOnSlot(RID & rid,
 }
 
 RC RBFM_ScanIterator::loadNxtRecOnPage(RID &rid,
-                                       void * decodedRec)
+                                       void * decodedRec,
+                                       const vector<Attribute> & recordDescriptor )
 {
     unsigned totalPageNum = this->fileHandle.getNumberOfPages();
     while (this->curtPageNum < totalPageNum)
@@ -1129,7 +1131,7 @@ RC RBFM_ScanIterator::loadNxtRecOnPage(RID &rid,
         rid.pageNum = this->curtPageNum;
         // rid.slotNum should be filled while executing loadNxtRecOnSlot()
         
-        RC rc = loadNxtRecOnSlot(rid, decodedRec, buffer);
+        RC rc = loadNxtRecOnSlot(rid, decodedRec, buffer, recordDescriptor);
 
         // didn't find a record on curt page
         if (rc == -1) {
@@ -1137,6 +1139,7 @@ RC RBFM_ScanIterator::loadNxtRecOnPage(RID &rid,
             continue;
         }
         // void * decodedRec has been loaded
+        
         free(buffer);
         return 0;
     }
@@ -1291,13 +1294,20 @@ bool satisfyCondition(const void * decodedRec,
     void * attrData = malloc(PAGE_SIZE);
     readAttributeNo(fieldIdx, decodedRec, recordDescriptor.size(), attrData);
     // attrData -> [nullIndicator + data]
+    bool rst;
     switch (recordDescriptor[fieldIdx].type) {
         case TypeInt:
-            return compareInt((char*)attrData + 1, compOp, value);
+            rst = compareInt((char*)attrData + 1, compOp, value);
+            free(attrData);
+            return rst;
         case TypeReal:
-            return compareReal((char*)attrData + 1, compOp, value);
+            rst = compareReal((char*)attrData + 1, compOp, value);
+            free(attrData);
+            return rst;
         case TypeVarChar:
-            return compareVarChar((char*)attrData + 1, compOp, value);
+            rst = compareVarChar((char*)attrData + 1, compOp, value);
+            free(attrData);
+            return rst;
         default:
             throw("Other type of attribute than TypeInt, TypeReal, TypeVarChar.");
             break;
@@ -1337,19 +1347,7 @@ RC projectAttributeOnto(void * projectRec,
         loadDataFor(idx, projectRec, decodedRec, proRecLen, allAttrNum);
         targetCounter++;
     }
-    
-//    for(int idx = 0; idx < allAttrNum; idx++) {
-//        // check if the attr is in the project list
-//        string attrKey = recordDescriptor[idx].name;
-//        if (attrMap.count(attrKey) == 0) {
-//            continue;
-//        }
-//        // load data
-//        targetCounter++;
-//        loadMetaFor(idx, targetMeta, allMeta, targetCounter);
-//        loadDataFor(idx, projectRec, decodedRec, proRecLen, allAttrNum);
-//        // projectRec and proRecLen grows
-//    }
+
     memcpy(projectRec, targetMeta, t_bytes);
     
     free(encodedRec);
@@ -1366,7 +1364,7 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid,
     void * decodedRec = malloc(PAGE_SIZE);
     do {
         // fetch the next decoded record
-        RC rc1 = loadNxtRecOnPage(rid, decodedRec);
+        RC rc1 = loadNxtRecOnPage(rid, decodedRec, this->recordDescriptor);
         if (rc1 == -1) {
             return RBFM_EOF;
         }
@@ -1377,9 +1375,6 @@ RC RBFM_ScanIterator::getNextRecord(RID &rid,
                                this->conditionAttribute,
                                this->compOp,
                                this->value));
-    
-    cout << "inside of getNextRecord(): " << endl;
-    printDecoded(recordDescriptor, decodedRec);
     
     // project required attribute to data
     projectAttributeOnto(data,

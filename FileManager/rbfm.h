@@ -107,8 +107,8 @@ public:
                   const vector<string> &attributeNames);
                   // a list of projected attributes
 private:
-    RC loadNxtRecOnPage(RID &rid, void * data);
-    RC loadNxtRecOnSlot(RID &rid, void * data, const void * buffer);
+    RC loadNxtRecOnPage(RID &rid, void * data, const vector<Attribute> & recordDescriptor);
+    RC loadNxtRecOnSlot(RID &rid, void * data, const void * buffer, const vector<Attribute> & recordDescriptor);
     
 };
 

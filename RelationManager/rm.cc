@@ -110,13 +110,15 @@ void printDescriptor(const vector<Attribute> descriptor)
 Table constructTable(const int & tid,
                      const string & tableName,
                      const string & fileName,
-                     const int & tableMode)
+                     const int & tableMode,
+                     const RID & tRid)
 {
     Table tbl;
     tbl.tid = tid;
     tbl.tableName = tableName;
     tbl.fileName = fileName;
     tbl.tableMode = tableMode;
+    tbl.tRid = tRid;
     return tbl;
 }
 
@@ -125,7 +127,8 @@ Column constructColumn(const int & tid,
                        const AttrType & columnType,
                        const AttrLength & columnLength,
                        const int & columnPosition,
-                       const int & columnMode)
+                       const int & columnMode,
+                       const RID & cRid)
 {
     Column clm;
     clm.tid = tid;
@@ -134,6 +137,7 @@ Column constructColumn(const int & tid,
     clm.columnLength = columnLength;
     clm.columnPosition = columnPosition;
     clm.columnMode = columnMode;
+    clm.cRid = cRid;
     return clm;
 }
 
@@ -201,14 +205,14 @@ RC prepareRecForTable(const int & tid,
     memcpy((char*)buffer + recLen, & tnameLen, 4);
     recLen += 4;
     
-    memcpy((char*)buffer + recLen, tname.c_str(), tnameLen + 1);
-    recLen += tnameLen + 1;
+    memcpy((char*)buffer + recLen, tname.c_str(), tnameLen);
+    recLen += tnameLen;
     
     memcpy((char*)buffer + recLen, & fnameLen, 4);
     recLen += 4;
     
-    memcpy((char*)buffer + recLen, fname.c_str(), fnameLen + 1);
-    recLen += fnameLen + 1;
+    memcpy((char*)buffer + recLen, fname.c_str(), fnameLen);
+    recLen += fnameLen;
     
     memcpy((char*)buffer + recLen, & tmode, 4);
     recLen += 4;
@@ -239,7 +243,7 @@ RC prepareRecForColumn(const int & tid,
     memcpy((char*)buffer + recLen, & cnameLen, 4);
     recLen += 4;
     
-    memcpy((char*)buffer + recLen, & cname, cnameLen);
+    memcpy((char*)buffer + recLen, cname.c_str(), cnameLen);
     recLen += cnameLen;
     
     memcpy((char*)buffer + recLen, & ctype, 4);
@@ -284,6 +288,10 @@ RC RelationManager::_loadTABLE(FileHandle & tableHandle)
     RID tRid;
     vector<Attribute> tableDescriptor = prepareTableDescriptor();
     
+    // Iterating through all possible combination of pageNum and slotNum is the only way to load TABLE entries into memory
+    // Because rbfm->readRecord() operation requires RID
+    // Thus it is not making sense to store RID in TABLE entries.
+    // But having a mapping between each RID and the corresponding TABLE entry in memory is beneficial, exactly why we need TABLEMAP and Table Struct
     PageNum totPages = tableHandle.getNumberOfPages();
     for(PageNum page = 0; page < totPages; page++) {
         if (tableHandle.readPage(page, pageBuffer) == -1) {
@@ -297,10 +305,9 @@ RC RelationManager::_loadTABLE(FileHandle & tableHandle)
             if (_rbf_manager->readRecord(tableHandle, tableDescriptor, tRid, data) == -1) {
                 break;
             }
+            // found a valid tRid, load
+            tbl.tRid = tRid;
             for (int attrIdx = 0; attrIdx < 4; attrIdx++) {
-                if (attrIdx == 3) {
-                    ;
-                }
                 short attrLen = tableDescriptor[attrIdx].length;
                 void * attr = malloc(attrLen);
                 _rbf_manager->readAttribute(tableHandle, tableDescriptor, tRid, tableDescriptor[attrIdx].name, attr);
@@ -353,6 +360,8 @@ RC RelationManager::_loadCOLUMN(FileHandle & columnHandle)
                 break;
             }
             
+            // found a valid tRid
+            clm.cRid = cRid;
             for (int attrIdx = 0; attrIdx < 6; attrIdx++) {
                 short attrLen = columnDescriptor[attrIdx].length;
                 void * attr = malloc(attrLen);
@@ -445,9 +454,6 @@ RC RelationManager::createCatalog()
     // init a rec for TABLE in TABLE
     vector<Attribute> tableDescriptor = prepareTableDescriptor();
     
-    cout << "inside createCatalog(): " << endl;
-    printDescriptor(tableDescriptor);
-    
     prepareRecForTable(INIT_TABLE_ID,
                        INIT_TABLE_NAME,
                        INIT_TABLE_NAME + DAT_FILE_SUFFIX,
@@ -457,7 +463,7 @@ RC RelationManager::createCatalog()
     RID ttRid; // tt: TABLE in TABLE
     _rbf_manager->insertRecord(tableHandle, tableDescriptor, buffer, ttRid);
     
-    TABLEMAP[INIT_TABLE_NAME] = constructTable(INIT_TABLE_ID, INIT_TABLE_NAME, INIT_TABLE_NAME + DAT_FILE_SUFFIX, SYSTEM);
+    TABLEMAP[INIT_TABLE_NAME] = constructTable(INIT_TABLE_ID, INIT_TABLE_NAME, INIT_TABLE_NAME + DAT_FILE_SUFFIX, SYSTEM, ttRid);
     
     // init a rec for COLUMN in TABLE
     prepareRecForTable(INIT_COLUMN_ID,
@@ -469,7 +475,7 @@ RC RelationManager::createCatalog()
     RID ctRid; // ct: COLUMN in TABLE
     _rbf_manager->insertRecord(tableHandle, tableDescriptor, buffer, ctRid);
     
-    TABLEMAP[INIT_COLUMN_NAME] = constructTable(INIT_COLUMN_ID, INIT_COLUMN_NAME, INIT_COLUMN_NAME + DAT_FILE_SUFFIX, SYSTEM);
+    TABLEMAP[INIT_COLUMN_NAME] = constructTable(INIT_COLUMN_ID, INIT_COLUMN_NAME, INIT_COLUMN_NAME + DAT_FILE_SUFFIX, SYSTEM, ctRid);
     
     _rbf_manager->closeFile(tableHandle);
     
@@ -497,7 +503,8 @@ RC RelationManager::createCatalog()
                                                             tableDescriptor[i].type,
                                                             tableDescriptor[i].length,
                                                             i+1,
-                                                            SYSTEM));
+                                                            SYSTEM,
+                                                            tcRid));
     }
     
     // insert records for COLUMN in COLUMN, whose number == # of COLUMN attrs
@@ -516,7 +523,8 @@ RC RelationManager::createCatalog()
                                                              columnDescriptor[i].type,
                                                              columnDescriptor[i].length,
                                                              i+1,
-                                                             SYSTEM));
+                                                             SYSTEM,
+                                                             ccRid));
     }
     free(buffer);
     _rbf_manager->closeFile(columnHandle);
@@ -574,7 +582,7 @@ RC RelationManager::createTable(const string &tableName,
     
     _rbf_manager->insertRecord(tableHandle, tableDescriptor, buffer, tRid);
     
-    TABLEMAP[tableName] = constructTable(tid, tableName, tableName + DAT_FILE_SUFFIX, USER);
+    TABLEMAP[tableName] = constructTable(tid, tableName, tableName + DAT_FILE_SUFFIX, USER, tRid);
     
     _rbf_manager->closeFile(tableHandle);
     
@@ -588,7 +596,7 @@ RC RelationManager::createTable(const string &tableName,
         RID cRid;
         _rbf_manager->insertRecord(columnHandle, columnDescriptor, buffer, cRid);
         // maintain the sequence of attrs
-        COLUMNSMAP[tid].push_back(constructColumn(tid, attrs[i].name, attrs[i].type, attrs[i].length, i+1, USER));
+        COLUMNSMAP[tid].push_back(constructColumn(tid, attrs[i].name, attrs[i].type, attrs[i].length, i+1, USER, cRid));
     }
     
     _rbf_manager->closeFile(columnHandle);
@@ -603,7 +611,22 @@ RC RelationManager::deleteTable(const string &tableName)
     if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
+    // delete the record in TABLE catalog
+    RID tRid = TABLEMAP[tableName].tRid;
+    _rm->deleteTuple(INIT_TABLE_NAME, tRid);
+    
+    // delete the records in COLUMN catalog
+    int tid = TABLEMAP[tableName].tid;
+    vector<Column> columns = COLUMNSMAP[tid];
+    for (Column clm : columns) {
+        _rm->deleteTuple(INIT_TABLE_NAME, clm.cRid);
+    }
+    TABLEMAP.erase(tableName);
+    COLUMNSMAP.erase(tid);
+    
+    // delete corresponding file
     _rbf_manager->destroyFile(tableName + DAT_FILE_SUFFIX);
+    
     return 0;
 }
 
@@ -623,8 +646,6 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 
 RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid)
 {
-    printTableMap(TABLEMAP);
-    
     if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
@@ -637,8 +658,6 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
     
     vector<Attribute> tupleDescriptor;
     getAttributes(tableName, tupleDescriptor);
-    
-    _rbf_manager->printRecord(tupleDescriptor, data);
     
     RC insertSuccess = _rbf_manager->insertRecord(fileHandle, tupleDescriptor, data, rid);
     
@@ -745,8 +764,6 @@ RC RelationManager::scan(const string &tableName,
                          const vector<string> &attributeNames,
                          RM_ScanIterator &rm_ScanIterator)
 {
-    cout << "inside of RM::scan()" << endl;
-    printTableMap(TABLEMAP);
     
     if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
@@ -770,17 +787,3 @@ RC RelationManager::scan(const string &tableName,
     
     return 0;
 }
-
-// Extra credit work
-RC RelationManager::dropAttribute(const string &tableName, const string &attributeName)
-{
-    return -1;
-}
-
-// Extra credit work
-RC RelationManager::addAttribute(const string &tableName, const Attribute &attr)
-{
-    return -1;
-}
-
-
