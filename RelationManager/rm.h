@@ -31,10 +31,13 @@ typedef struct {
 // RM_ScanIterator is an iteratr to go through tuples
 class RM_ScanIterator {
 public:
-  RM_ScanIterator(RBFM_ScanIterator rbfmsi) {
-      this->_rbfmsi = rbfmsi;
-  };
+  RM_ScanIterator() {};
   ~RM_ScanIterator() {};
+
+    RC initialize(RBFM_ScanIterator rbfmsi) {
+        this->_rbfmsi = rbfmsi;
+        return 0;
+    };
 
   // "data" follows the same format as RelationManager::insertTuple()
   RC getNextTuple(RID &rid, void *data) {
@@ -107,7 +110,7 @@ private:
     FileHandle columnHandle;
     RecordBasedFileManager *_rbf_manager;
     unordered_map<string, Table> TABLEMAP;
-    unordered_map<int, unordered_map<string, Column>> COLUMNSMAP;
+    unordered_map<int, vector<Column>> COLUMNSMAP;
     static RelationManager* _rm;
     
     RC _loadTABLE(FileHandle & tableHandle);

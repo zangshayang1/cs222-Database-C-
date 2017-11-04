@@ -81,6 +81,8 @@ public:
     string conditionAttribute;
     CompOp compOp;
     const void * value;
+    vector<string> attributeNames;
+    
     unordered_map<string, int> attrMap;
     RID rid;
     PageNum curtPageNum;
