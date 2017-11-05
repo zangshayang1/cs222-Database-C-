@@ -84,8 +84,7 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
     if (fileHandle.pFile == NULL) {
         return -1;
     }
-    
-    fileHandle.pFile = NULL;
+    fclose(fileHandle.pFile);
     return 0;
 }
 
