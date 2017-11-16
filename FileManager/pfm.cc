@@ -4,6 +4,17 @@
 #include <cstdio>
 #include <iostream>
 
+const string FILE_STAT_SUFFIX = ".stat";
+const string FILE_STAT_PREFIX = ".";
+const unsigned int STAT_NUM = 3;
+const unsigned int READ_PAGE_COUNTER_OFFSET = 0;
+const unsigned int WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned int);
+const unsigned int APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned int);
+
+string statFileNameOf(const string fileName) {
+    return FILE_STAT_PREFIX + fileName + FILE_STAT_SUFFIX;
+}
+
 PagedFileManager* PagedFileManager::_pf_manager = nullptr;
 
 PagedFileManager* PagedFileManager::instance()
@@ -38,22 +49,36 @@ bool PagedFileManager::fileExists(const string &filename) {
 
 RC PagedFileManager::createFile(const string &fileName)
 {
-    if (fileExists(fileName)) {
+    if (fileExists(fileName) || fileExists(statFileNameOf(fileName))) {
+        cout << "PagedFileManager::createFile(const string &fileName) -> the file already exists." << endl;
         return -1;
     }
     ofstream ofs; // <fstream>
     ofs.open(fileName);
     ofs.close();
+    ofs.open(statFileNameOf(fileName));
+    ofs.close();
+    // make readPageCounter/writePageCounter/appendPageCounter persistent -> create a ".fileName.stat" for each "fileName".
+    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
+    unsigned int counter = 0;
+    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
+    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
+    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
+    fwrite(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
+    fflush(fptr);
+    free(buffer);
+    fclose(fptr);
     return 0;
 }
 
 
 RC PagedFileManager::destroyFile(const string &fileName)
 {
-    if (!fileExists(fileName)) {
+    if (!fileExists(fileName) || !fileExists(statFileNameOf(fileName))) {
         return -1;
     }
-    if (remove(fileName.c_str()) != 0) {
+    if (remove(fileName.c_str()) != 0 || remove(statFileNameOf(fileName).c_str()) != 0) {
         return -1;
     }
     return 0;
@@ -71,10 +96,27 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     }
     // read binary and update
     fileHandle.pFile = fopen(fileName.c_str(), "rb+");
-    
+    fileHandle.fileName = fileName;
+
     if (fileHandle.pFile == NULL) {
         return -1;
     }
+    
+    // read persistent counters from disk
+    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
+    fread(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
+    unsigned int readPageCounter;
+    unsigned int writePageCounter;
+    unsigned int appendPageCounter;
+    memcpy(&readPageCounter, (char*)buffer + READ_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
+    memcpy(&writePageCounter, (char*)buffer + WRITE_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
+    memcpy(&appendPageCounter, (char*)buffer + APPEND_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
+    fileHandle.readPageCounter = readPageCounter;
+    fileHandle.writePageCounter = writePageCounter;
+    fileHandle.appendPageCounter = appendPageCounter;
+    free(buffer);
+    fclose(fptr);
     return 0;
 }
 
@@ -84,7 +126,19 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
     if (fileHandle.pFile == NULL) {
         return -1;
     }
+    
+    FILE * fptr = fopen(statFileNameOf(fileHandle.fileName).c_str(), "rb+");
+    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
+    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & fileHandle.readPageCounter, sizeof(unsigned int));
+    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & fileHandle.writePageCounter, sizeof(unsigned int));
+    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & fileHandle.appendPageCounter, sizeof(unsigned int));
+    fwrite(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
+    fflush(fptr);
+    free(buffer);
+    fclose(fptr);
+    
     fclose(fileHandle.pFile);
+    
     return 0;
 }
 
@@ -94,10 +148,11 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
 // constructor
 FileHandle::FileHandle()
 {
-    readPageCounter = 0;
-    writePageCounter = 0;
-    appendPageCounter = 0;
-    pFile = NULL;
+//    readPageCounter = 0;
+//    writePageCounter = 0;
+//    appendPageCounter = 0;
+//    fileName = "";
+//    pFile = NULL;
 }
 
 // deconstructor

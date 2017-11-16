@@ -48,6 +48,7 @@ public:
     unsigned readPageCounter;
     unsigned writePageCounter;
     unsigned appendPageCounter;
+    string fileName;
     FILE * pFile; // <stdio.h>
     
     FileHandle();                                                         // Default constructor
