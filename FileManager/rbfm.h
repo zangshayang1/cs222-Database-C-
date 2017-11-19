@@ -2,17 +2,10 @@
 #define _rbfm_h_
 
 
-#include <vector>
-#include <climits>
 #include "pfm.h"
 #include "../Utils/utils.h"
-#include <unordered_map>
-
-
 
 using namespace std;
-
-
 
 // RBFM_ScanIterator is an iterator to go through records
 // The way to use it is like the following:

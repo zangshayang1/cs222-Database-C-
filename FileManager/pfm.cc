@@ -1,11 +1,4 @@
 #include "pfm.h"
-#include <cstdio>
-
-
-const unsigned STAT_NUM = 3;
-const unsigned READ_PAGE_COUNTER_OFFSET = 0;
-const unsigned WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned);
-const unsigned APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned);
 
 
 PagedFileManager* PagedFileManager::_pf_manager = nullptr;

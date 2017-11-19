@@ -1,13 +1,20 @@
 #ifndef _utils_h_
 #define _utils_h_
 
+/*
+ * INCLUDE LIBRARIES
+ */
 #include <sys/stat.h>
 #include <string>
 #include <iostream>
 #include <fstream>
 #include <cstdio>
 #include <vector>
+#include <unordered_map>
 
+/*
+ * DEFINE MACROS
+ */
 // 4096
 #define FREE_SPACE_INFO_POS 4094
 // a 2bytes (short int) would be sufficient to repr free space in a 4KB page
@@ -21,8 +28,15 @@
 
 #define PAGE_SIZE 4096
 
+# define RBFM_EOF (-1)  // end of a scan operator
+
 using namespace std;
 
+/*
+ * DEFINE CONST
+ */
+
+// pfm
 typedef unsigned PageNum;
 typedef unsigned SlotNum;
 typedef int RC;
@@ -30,14 +44,30 @@ typedef char byte;
 typedef unsigned char CompressedPageNum[3];
 typedef unsigned char CompressedSlotNum[2];
 
+const unsigned STAT_NUM = 3;
+const unsigned READ_PAGE_COUNTER_OFFSET = 0;
+const unsigned WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned);
+const unsigned APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned);
+
+// rbfm
 const short ATTR_NULL_FLAG = -1;
 const short SLOT_OFFSET_CLEAN = -2;
 const short SLOT_RECLEN_CLEAN = -3;
 const int PAGENUM_UNAVAILABLE = -4;
-const int EMPTY_BYTE = -5;
 // memset() takes int but fill the block using unsigned char interpretation
+const int EMPTY_BYTE = -5;
 
-// Attribute
+
+// rm
+const string INIT_TABLE_NAME = "TABLE";
+const string INIT_COLUMN_NAME = "COLUMN";
+const string DAT_FILE_SUFFIX = ".dat";
+const int SYSTEM = -1;
+const int USER = 1;
+
+/*
+ * STRUCT TYPE
+ */
 typedef enum { TypeInt = 0, TypeReal = 1, TypeVarChar = 2 } AttrType;
 
 typedef unsigned AttrLength;
@@ -75,12 +105,9 @@ typedef enum { EQ_OP = 0, // no condition// =
 } CompOp;
 
 
-/********************************************************************************
- The scan iterator is NOT required to be implemented for the part 1 of the project
- ********************************************************************************/
-
-# define RBFM_EOF (-1)  // end of a scan operator
-
+/*
+ * UTILIS CLASS
+ */
 class UtilsManager
 {
 public:

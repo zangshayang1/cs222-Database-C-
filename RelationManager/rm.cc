@@ -1,14 +1,6 @@
-#include <iostream>
 #include "rm.h"
 #include "../FileManager/rbfm.h"
 #include "../FileManager/pfm.h"
-
-const string INIT_TABLE_NAME = "TABLE";
-const string INIT_COLUMN_NAME = "COLUMN";
-const string DAT_FILE_SUFFIX = ".dat";
-const int SYSTEM = -1;
-const int USER = 1;
-
 
 
 /* ---------------------------------------------------------------------------------------

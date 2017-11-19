@@ -1,9 +1,5 @@
 #include "rbfm.h"
 
-#include "cmath"
-#include <iostream>
-#include <unordered_map>
-
 RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = nullptr;
 
 RecordBasedFileManager* RecordBasedFileManager::instance()

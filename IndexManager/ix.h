@@ -1,9 +1,6 @@
 #ifndef _ix_h_
 #define _ix_h_
 
-#include <vector>
-#include <string>
-
 #include "../Utils/utils.h"
 #include "../FileManager/rbfm.h"
 
