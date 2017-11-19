@@ -95,7 +95,10 @@ public:
     // a satisfying record needs to be fetched from the file.
     // "data" follows the same format as RecordBasedFileManager::insertRecord().
     RC getNextRecord(RID &rid, void *data);
-    RC close() { return -1; };
+    RC close() {
+        // TODO : fclose(fileHandle.pFile);
+        return -1;
+    };
     
     RC initialize(FileHandle &fileHandle,
                   const vector<Attribute> &recordDescriptor,

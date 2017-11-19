@@ -189,9 +189,9 @@ RC prepareRecForTable(const int & tid,
                       const vector<Attribute> & tableDescriptor) // init 0
 {
     const auto tnameLen = (int) tname.length();
-    cout << "prepareRecForTable(): tnameLen: " << tnameLen << endl;
+//    cout << "prepareRecForTable(): tnameLen: " << tnameLen << endl;
     const auto fnameLen = (int) fname.length();
-    cout << "prepareRecForTable(): fnameLen: " << fnameLen << endl;
+//    cout << "prepareRecForTable(): fnameLen: " << fnameLen << endl;
     
     short recLen = 0;
     
@@ -366,24 +366,35 @@ RC RelationManager::_loadCOLUMN(FileHandle & columnHandle)
                 short attrLen = columnDescriptor[attrIdx].length;
                 void * attr = malloc(attrLen);
                 _rbf_manager->readAttribute(columnHandle, columnDescriptor, cRid, columnDescriptor[attrIdx].name, attr);
+                // attr -> nullIndicator + data
                 switch (attrIdx) {
                     case 0:
-                        memcpy(& clm.tid, attr, attrLen);
+                        memcpy(& clm.tid, (char*)attr + 1, attrLen);
                         break;
                     case 1:
-                        memcpy(& clm.columnName, attr, attrLen);
+                    {
+                        int strLen;
+                        memcpy(& strLen, (char*)attr + 1, sizeof(int));
+                        char strVal[attrLen];
+                        // attrLen -> varCharLen = 50, pre-defined, not actual length of the value
+                        memcpy(strVal, (char*)attr + 1 + sizeof(int), (size_t)strLen);
+                        // set terminator for char*, aka, c_string
+                        strVal[strLen] = '\0';
+                        // convert to cpp_string
+                        clm.columnName = string(strVal);
                         break;
+                    }
                     case 2:
-                        memcpy(& clm.columnType, attr, attrLen);
+                        memcpy(& clm.columnType, (char*)attr + 1, attrLen);
                         break;
                     case 3:
-                        memcpy(& clm.columnLength, attr, attrLen);
+                        memcpy(& clm.columnLength, (char*)attr + 1, attrLen);
                         break;
                     case 4:
-                        memcpy(& clm.columnPosition, attr, attrLen);
+                        memcpy(& clm.columnPosition, (char*)attr + 1, attrLen);
                         break;
                     case 5:
-                        memcpy(& clm.columnMode, attr, attrLen);
+                        memcpy(& clm.columnMode, (char*)attr + 1, attrLen);
                         break;
                     default:
                         break;
@@ -611,6 +622,9 @@ RC RelationManager::deleteTable(const string &tableName)
     if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
+    if (checkOwnership(TABLEMAP[tableName]) == SYSTEM) {
+        return -1;
+    }
     // delete the record in TABLE catalog
     RID tRid = TABLEMAP[tableName].tRid;
     _rm->deleteTuple(INIT_TABLE_NAME, tRid);
@@ -783,7 +797,8 @@ RC RelationManager::scan(const string &tableName,
     
     rm_ScanIterator.initialize(rbfmsi);
     
-    _rbf_manager->closeFile(fileHandle);
+    // leave the fileHandle.pFile open while the rm_ScanIterator exists. 
+//    _rbf_manager->closeFile(fileHandle);
     
     return 0;
 }

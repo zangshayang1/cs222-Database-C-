@@ -340,29 +340,42 @@ RC printDecoded(const vector<Attribute> &recordDescriptor,
     string nullstr = "NULL";
     
     auto fieldNum = (short) recordDescriptor.size();
-    short dataOfs = sizeof(short) * fieldNum;
     
+    short thisFieldDataOfs = fieldNum * sizeof(short);
     for(int i = 0; i < recordDescriptor.size(); i++) {
         output += recordDescriptor[i].name;
         output += tab;
+        
+        auto nextFieldDataOfs = *(short*)((char*)decodedRec + i * sizeof(short));
+        if (nextFieldDataOfs == ATTR_NULL_FLAG) {
+            /*
+             * if this field is NULL (encoded by nextFieldDataOfs == ATTR_NULL_FLAG)
+             * then the current value of thisFieldDataOfs holds is the start of the next field.
+             * if the next field is still NULL
+             * thisFieldDataOfs still holds.
+             */
+            output += nullstr;
+            output += newline;
+            continue;
+        }
         switch (recordDescriptor[i].type) {
             case TypeInt:
                 int intVal;
-                memcpy(&intVal, (char*)decodedRec + dataOfs, sizeof(int));
+                memcpy(&intVal, (char*)decodedRec + thisFieldDataOfs, sizeof(int));
                 output += to_string(intVal);
                 break;
             case TypeReal:
                 float realVal;
-                memcpy(&realVal, (char*)decodedRec + dataOfs, sizeof(float));
+                memcpy(&realVal, (char*)decodedRec + thisFieldDataOfs, sizeof(float));
                 output += to_string(realVal);
                 break;
             case TypeVarChar:
-                string strVal = getStringFrom(decodedRec, dataOfs);
+                string strVal = getStringFrom(decodedRec, thisFieldDataOfs);
                 output += strVal;
                 break;
         }
         output += newline;
-        memcpy(&dataOfs, (char*)decodedRec + i * sizeof(short), sizeof(short));
+        thisFieldDataOfs = nextFieldDataOfs;
     }
     cout << output << endl;
     return 0;
@@ -459,7 +472,6 @@ void * RecordBasedFileManager::decodeMetaFrom(const void* data,
             // else "meta" memory records the position where this field of data ends in each 2bytes slot.
             short newEndsBy = dataLength - n_bytes + metaLength;
             memcpy((char*)meta + sizeof(short) * target_field_idx, &newEndsBy, sizeof(short));
-//            memcpy((char*)meta + sizeof(short) * target_field_idx, &dataLength, sizeof(short));
             j++;
         }
         i++;
@@ -865,6 +877,22 @@ RC RecordBasedFileManager::deleteRecord(FileHandle &fileHandle,
     return 0;
 }
 
+RC putBeaconIntoBuffer(void * buffer,
+                       const SlotNum & slotNum,
+                       const short & beaconOfs,
+                       const Beacon & beacon) {
+    // fill in slot info
+    putRecOffset(buffer, slotNum, beaconOfs);
+    putRecLength(buffer, slotNum, BEACON_SIZE);
+    // fill in record data
+    memcpy((char*)buffer + beaconOfs, beacon.cpsdPageNum, (size_t) 3);
+    memcpy((char*)buffer + beaconOfs + 3, beacon.cpsdSlotNum, (size_t) 2);
+    // fill in slotNum
+    putTotalSlotsNum(buffer, getTotalSlotsNum(buffer) + 1);
+    // fill in freeSpaceOffset
+    putFreeOffset(buffer, beaconOfs + BEACON_SIZE);
+    return 0;
+}
 
 /*
  Implementation Algorithm:
@@ -945,7 +973,10 @@ RC RecordBasedFileManager::updateRecord(FileHandle &fileHandle,
         }
         // Since not enough space for updRecord, simply put a 5-byte Beacon there, which points to where the updRecord is located.
         Beacon beacon = compressed(newRid);
-        insertIntoPageHelper(buffer, & beacon, freeSpaceOffset, (short) BEACON_SIZE, actRid.slotNum);
+        putBeaconIntoBuffer(buffer, actRid.slotNum, freeSpaceOffset, beacon);
+        
+//        insertIntoPageHelper(buffer, & beacon, freeSpaceOffset, (short) BEACON_SIZE, actRid.slotNum);
+        
         // if the updated record's size exceeds what the current page could provide, the above code finds another page to store the record. Now, don't forget to flush the current page so that all the current buffer modifications take place.
         fileHandle.writePage(actRid.pageNum, buffer);
     }
@@ -981,17 +1012,17 @@ short getAttrLenFromDecodedRec(const int & i,
     if (i >= fieldLen || i < 0) {
         throw("Incorrect field index.");
     }
+    auto thisOfs = *(short*)((char*)record + i * sizeof(short));
+    if (thisOfs == ATTR_NULL_FLAG) {
+        return 0;
+    }
     if (i == 0) {
         short metaLen = fieldLenToMetaLen(fieldLen);
-        short secRecOfs;
-        memcpy(&secRecOfs, record, sizeof(short));
+        auto secRecOfs = *(short*)record;
         return (secRecOfs - metaLen);
     }
     else {
-        short prevOfs;
-        short thisOfs;
-        memcpy(&prevOfs, (char*)record + (i - 1) * sizeof(short), sizeof(short));
-        memcpy(&thisOfs, (char*)record + i * sizeof(short), sizeof(short));
+        auto prevOfs = *(short*)((char*)record + (i - 1) * sizeof(short));
         return (thisOfs - prevOfs);
     }
 }
@@ -999,14 +1030,21 @@ short getAttrLenFromDecodedRec(const int & i,
 RC readAttributeNo(const int i, const void * record, const unsigned long & fieldLen, void * data) {
     short offset = getAttrOfsFromDecodedRec(i, record, fieldLen);
     short length = getAttrLenFromDecodedRec(i, record, fieldLen);
+    unsigned char nullIndicator;
     if (length == 0) {
-        return -2; // the attr value is null;
+        // the attr value is null;
+        nullIndicator = 0x80;
+        memcpy(data, & nullIndicator, 1);
+        return -1;
     }
-    unsigned char nullIndicator = 0x0;
-    // for any attr, the corresponding null indicator length is always 1.
-    memcpy(data, & nullIndicator, 1);
-    memcpy((char*)data + 1, (char*)record + offset, (size_t)length);
-    return 0;
+    else {
+        nullIndicator = 0x0;
+        // for any attr, the corresponding null indicator length is always 1.
+        memcpy(data, & nullIndicator, 1);
+        memcpy((char*)data + 1, (char*)record + offset, (size_t)length);
+        return 0;
+    }
+    
 }
 
 RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
@@ -1020,6 +1058,8 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     if (readRecord(fileHandle, recordDescriptor, rid, encodedRecord) == -1) {
         return -1;
     }
+    // 0 is returned anyway after this line
+    // because an attr will be fetched even it is a nullIndicator.
     short recordLen;
     void * record = decodeMetaFrom(encodedRecord, recordDescriptor, recordLen);
     const unsigned long fieldLen = recordDescriptor.size();
@@ -1032,10 +1072,7 @@ RC RecordBasedFileManager::readAttribute(FileHandle &fileHandle,
     }
     free(encodedRecord);
     free(record);
-    return attrFound;
-    // -1 means the for loop didn't find anything
-    // -2 means the attr is null
-    // 0 means success
+    return 0;
 }
 
 
@@ -1074,10 +1111,6 @@ RC RBFM_ScanIterator::initialize(FileHandle &fileHandle,
     this->compOp = compOp;
     this->value = value;
     this->attributeNames = attributeNames;
-//    for(string attr : attributeNames) {
-//        this->attributeNames.push_back(attr);
-//    }
-//    this->attrMap = attrMap;
     
     for(int i = 0; i < recordDescriptor.size(); i++) {
         this->attrMap[recordDescriptor[i].name] = i;
@@ -1136,6 +1169,7 @@ RC RBFM_ScanIterator::loadNxtRecOnPage(RID &rid,
         // didn't find a record on curt page
         if (rc == -1) {
             this->curtPageNum++;
+            this->curtSlotNum = 0;
             continue;
         }
         // void * decodedRec has been loaded
@@ -1292,7 +1326,11 @@ bool satisfyCondition(const void * decodedRec,
     // access mode: attrMap[conditionAttribute] is not allowed when attrMap is const
     int fieldIdx = attrMap.at(conditionAttribute);
     void * attrData = malloc(PAGE_SIZE);
-    readAttributeNo(fieldIdx, decodedRec, recordDescriptor.size(), attrData);
+    RC rc = readAttributeNo(fieldIdx, decodedRec, recordDescriptor.size(), attrData);
+    if (rc == -1) {
+        // if attrData is a nullIndicator
+        return (compOp == NO_OP);
+    }
     // attrData -> [nullIndicator + data]
     bool rst;
     switch (recordDescriptor[fieldIdx].type) {

@@ -4,15 +4,18 @@
 #include <cstdio>
 #include <iostream>
 
-const string FILE_STAT_SUFFIX = ".stat";
-const string FILE_STAT_PREFIX = ".";
-const unsigned int STAT_NUM = 3;
-const unsigned int READ_PAGE_COUNTER_OFFSET = 0;
-const unsigned int WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned int);
-const unsigned int APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned int);
+
+const unsigned STAT_NUM = 3;
+const unsigned READ_PAGE_COUNTER_OFFSET = 0;
+const unsigned WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned);
+const unsigned APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned);
+
+
 
 string statFileNameOf(const string fileName) {
-    return FILE_STAT_PREFIX + fileName + FILE_STAT_SUFFIX;
+    string suffix = ".stat";
+    string prefix = ".";
+    return (prefix + fileName + suffix);
 }
 
 PagedFileManager* PagedFileManager::_pf_manager = nullptr;
@@ -49,23 +52,28 @@ bool PagedFileManager::fileExists(const string &filename) {
 
 RC PagedFileManager::createFile(const string &fileName)
 {
+    
     if (fileExists(fileName) || fileExists(statFileNameOf(fileName))) {
         cout << "PagedFileManager::createFile(const string &fileName) -> the file already exists." << endl;
         return -1;
     }
-    ofstream ofs; // <fstream>
-    ofs.open(fileName);
-    ofs.close();
-    ofs.open(statFileNameOf(fileName));
-    ofs.close();
+    ofstream file; // <fstream>
+    file.open(fileName.c_str());
+    file.close();
+    
+    ofstream fileStat;
+    fileStat.open(statFileNameOf(fileName).c_str());
+    fileStat.close();
+    
     // make readPageCounter/writePageCounter/appendPageCounter persistent -> create a ".fileName.stat" for each "fileName".
     FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
-    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
-    unsigned int counter = 0;
-    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
-    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
-    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned int));
-    fwrite(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
+    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
+    unsigned counter = 0;
+    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned));
+    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned));
+    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned));
+    
+    fwrite((char*)buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
     fflush(fptr);
     free(buffer);
     fclose(fptr);
@@ -104,14 +112,14 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     
     // read persistent counters from disk
     FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
-    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
-    fread(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
-    unsigned int readPageCounter;
-    unsigned int writePageCounter;
-    unsigned int appendPageCounter;
-    memcpy(&readPageCounter, (char*)buffer + READ_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
-    memcpy(&writePageCounter, (char*)buffer + WRITE_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
-    memcpy(&appendPageCounter, (char*)buffer + APPEND_PAGE_COUNTER_OFFSET, sizeof(unsigned int));
+    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
+    fread(buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
+    unsigned readPageCounter;
+    unsigned writePageCounter;
+    unsigned appendPageCounter;
+    memcpy(&readPageCounter, (char*)buffer + READ_PAGE_COUNTER_OFFSET, sizeof(unsigned));
+    memcpy(&writePageCounter, (char*)buffer + WRITE_PAGE_COUNTER_OFFSET, sizeof(unsigned));
+    memcpy(&appendPageCounter, (char*)buffer + APPEND_PAGE_COUNTER_OFFSET, sizeof(unsigned));
     fileHandle.readPageCounter = readPageCounter;
     fileHandle.writePageCounter = writePageCounter;
     fileHandle.appendPageCounter = appendPageCounter;
@@ -128,15 +136,14 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
     }
     
     FILE * fptr = fopen(statFileNameOf(fileHandle.fileName).c_str(), "rb+");
-    void * buffer = malloc(sizeof(unsigned int) * STAT_NUM);
-    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & fileHandle.readPageCounter, sizeof(unsigned int));
-    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & fileHandle.writePageCounter, sizeof(unsigned int));
-    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & fileHandle.appendPageCounter, sizeof(unsigned int));
-    fwrite(buffer, sizeof(char), sizeof(unsigned int) * STAT_NUM, fptr);
+    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
+    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, &fileHandle.readPageCounter, sizeof(unsigned));
+    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, &fileHandle.writePageCounter, sizeof(unsigned));
+    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, &fileHandle.appendPageCounter, sizeof(unsigned));
+    fwrite((char*)buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
     fflush(fptr);
     free(buffer);
     fclose(fptr);
-    
     fclose(fileHandle.pFile);
     
     return 0;
@@ -148,17 +155,18 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
 // constructor
 FileHandle::FileHandle()
 {
-//    readPageCounter = 0;
-//    writePageCounter = 0;
-//    appendPageCounter = 0;
-//    fileName = "";
-//    pFile = NULL;
+    readPageCounter = 0;
+    writePageCounter = 0;
+    appendPageCounter = 0;
+    fileName = "";
+    pFile = NULL;
 }
 
 // deconstructor
 FileHandle::~FileHandle()
 {
 }
+
 
 /*
  fseek(FILE * fp, long offset, int position) where position can be commons such as: SEEK_SET/SEEK_CUR/SEEK_END
@@ -177,12 +185,14 @@ RC FileHandle::readPage(PageNum pageNum, void *data)
     if (fseek(pFile, PAGE_SIZE * pageNum, SEEK_SET) != 0) {
         return -1;
     }
+    
     // read 4096 bytes into *data
     // fread() returns the number of bytes read.
     if (fread(data, sizeof(char), PAGE_SIZE, pFile) == 0) {
         return -1;
     }
-    //    fflush(pFile);
+    
+    fflush(pFile);
     readPageCounter++;
     return 0;
 }
@@ -199,7 +209,7 @@ RC FileHandle::writePage(PageNum pageNum, const void *data)
         return -1;
     }
     // fwrite() returns the number of bytes written.
-    if (fwrite(data, sizeof(char), PAGE_SIZE, pFile) == 0) {
+    if (fwrite((char*)data, sizeof(char), PAGE_SIZE, pFile) == 0) {
         return -1;
     }
     fflush(pFile);
@@ -213,6 +223,7 @@ RC FileHandle::appendPage(const void *data)
     if (fseek(pFile, 0, SEEK_END) != 0) {
         return -1;
     }
+    
     // fwrite() returns the number of bytes written successfully.
     if (fwrite((char*)data, sizeof(char), PAGE_SIZE, pFile) == 0) {
         return -1;
@@ -230,6 +241,13 @@ unsigned FileHandle::getNumberOfPages()
 {
     fseek(pFile, 0, SEEK_END);
     long pos = ftell(pFile);
+    
+    if (pos < 0)
+    {
+        cout << "getNumberOfPages() failed." << endl;
+        return -1;
+    }
+    
     // if no page has ever been initialized, return 0;
     // if 1 page has been initialized, pos should equal to PAGE_SIZE, and it returns 1.
     return (unsigned) (pos / PAGE_SIZE);

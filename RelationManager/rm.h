@@ -48,7 +48,9 @@ public:
       }
       return 0;
   };
-  RC close() { return -1; };
+  RC close() {
+      _rbfmsi.close();
+      return -1; };
 
 private:
     RBFM_ScanIterator _rbfmsi;
