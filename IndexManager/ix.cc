@@ -1,6 +1,8 @@
-
 #include "ix.h"
 
+/*
+ * WHY init this way?
+ */
 IndexManager* IndexManager::_index_manager = 0;
 
 IndexManager* IndexManager::instance()
@@ -17,10 +19,24 @@ IndexManager::IndexManager()
 
 IndexManager::~IndexManager()
 {
+    delete _index_manager;
 }
 
 RC IndexManager::createFile(const string &fileName)
 {
+    if (_utils->fileExists(fileName) || _utils->fileExists(_utils->statFileNameOf(fileName))) {
+        cout << "IndexManager::createFile() -> the file already exists." << endl;
+        return -1;
+    }
+    ofstream file;
+    file.open(fileName.c_str());
+    file.close();
+    
+    ofstream fileStat;
+    fileStat.open(_utils->statFileNameOf(fileName).c_str());
+    file.close();
+    
+    
     return -1;
 }
 

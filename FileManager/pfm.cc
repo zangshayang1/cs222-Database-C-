@@ -1,8 +1,5 @@
 #include "pfm.h"
-#include <fstream>
-#include <sys/stat.h>
 #include <cstdio>
-#include <iostream>
 
 
 const unsigned STAT_NUM = 3;
@@ -10,13 +7,6 @@ const unsigned READ_PAGE_COUNTER_OFFSET = 0;
 const unsigned WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned);
 const unsigned APPEND_PAGE_COUNTER_OFFSET = WRITE_PAGE_COUNTER_OFFSET + sizeof(unsigned);
 
-
-
-string statFileNameOf(const string fileName) {
-    string suffix = ".stat";
-    string prefix = ".";
-    return (prefix + fileName + suffix);
-}
 
 PagedFileManager* PagedFileManager::_pf_manager = nullptr;
 
@@ -40,20 +30,10 @@ PagedFileManager::~PagedFileManager()
     delete _pf_manager;
 }
 
-
-bool PagedFileManager::fileExists(const string &filename) {
-    struct stat file_stat;
-    if (stat(filename.c_str(), &file_stat) == 0) {
-        return true;
-    }
-    return false;
-}
-
-
 RC PagedFileManager::createFile(const string &fileName)
 {
     
-    if (fileExists(fileName) || fileExists(statFileNameOf(fileName))) {
+    if (_utils->fileExists(fileName) || _utils->fileExists(_utils->statFileNameOf(fileName))) {
         cout << "PagedFileManager::createFile(const string &fileName) -> the file already exists." << endl;
         return -1;
     }
@@ -62,11 +42,11 @@ RC PagedFileManager::createFile(const string &fileName)
     file.close();
     
     ofstream fileStat;
-    fileStat.open(statFileNameOf(fileName).c_str());
+    fileStat.open(_utils->statFileNameOf(fileName).c_str());
     fileStat.close();
     
     // make readPageCounter/writePageCounter/appendPageCounter persistent -> create a ".fileName.stat" for each "fileName".
-    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    FILE * fptr = fopen(_utils->statFileNameOf(fileName).c_str(), "rb+");
     void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
     unsigned counter = 0;
     memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & counter, sizeof(unsigned));
@@ -83,10 +63,10 @@ RC PagedFileManager::createFile(const string &fileName)
 
 RC PagedFileManager::destroyFile(const string &fileName)
 {
-    if (!fileExists(fileName) || !fileExists(statFileNameOf(fileName))) {
+    if (!_utils->fileExists(fileName) || !_utils->fileExists(_utils->statFileNameOf(fileName))) {
         return -1;
     }
-    if (remove(fileName.c_str()) != 0 || remove(statFileNameOf(fileName).c_str()) != 0) {
+    if (remove(fileName.c_str()) != 0 || remove(_utils->statFileNameOf(fileName).c_str()) != 0) {
         return -1;
     }
     return 0;
@@ -99,7 +79,7 @@ RC PagedFileManager::destroyFile(const string &fileName)
  */
 RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
 {
-    if (!fileExists(fileName)) {
+    if (!_utils->fileExists(fileName)) {
         return -1;
     }
     // read binary and update
@@ -111,7 +91,7 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     }
     
     // read persistent counters from disk
-    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    FILE * fptr = fopen(_utils->statFileNameOf(fileName).c_str(), "rb+");
     void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
     fread(buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
     unsigned readPageCounter;
@@ -135,7 +115,7 @@ RC PagedFileManager::closeFile(FileHandle &fileHandle)
         return -1;
     }
     
-    FILE * fptr = fopen(statFileNameOf(fileHandle.fileName).c_str(), "rb+");
+    FILE * fptr = fopen(_utils->statFileNameOf(fileHandle.fileName).c_str(), "rb+");
     void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
     memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, &fileHandle.readPageCounter, sizeof(unsigned));
     memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, &fileHandle.writePageCounter, sizeof(unsigned));

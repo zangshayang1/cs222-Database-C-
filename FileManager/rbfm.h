@@ -2,67 +2,17 @@
 #define _rbfm_h_
 
 
-#include <stdio.h>
-#include <string>
 #include <vector>
 #include <climits>
 #include "pfm.h"
+#include "../Utils/utils.h"
 #include <unordered_map>
 
-// 4096
-#define FREE_SPACE_INFO_POS 4094
-// a 2bytes (short int) would be sufficient to repr free space in a 4KB page
-#define SLOT_NUM_INFO_POS 4092
 
-#define RIGHT_MOST_SLOT_OFFSET 4088
-
-#define BITES_PER_BYTE 8
-
-#define BEACON_SIZE 5
 
 using namespace std;
 
-// Record ID
-typedef struct
-{
-    PageNum pageNum;    // page number
-    SlotNum slotNum;    // slot number in the page
-} RID;
 
-// Beacon (used to indicate where the record is really located. It is needed when an updateRecord operation cannot be done in its original page. This way, once a RID is initialized when a record is initially inserted, it doesn't change.)
-typedef struct
-{
-    CompressedPageNum cpsdPageNum; // compressed page number
-    CompressedSlotNum cpsdSlotNum; // compressed slot number
-} Beacon;
-
-// Attribute
-typedef enum { TypeInt = 0, TypeReal = 1, TypeVarChar = 2 } AttrType;
-
-typedef unsigned AttrLength;
-
-struct Attribute {
-    string   name;     // attribute name
-    AttrType type;     // attribute type
-    AttrLength length; // attribute length
-};
-
-// Comparison Operator (NOT needed for part 1 of the project)
-typedef enum { EQ_OP = 0, // no condition// =
-    LT_OP,      // <
-    LE_OP,      // <=
-    GT_OP,      // >
-    GE_OP,      // >=
-    NE_OP,      // !=
-    NO_OP       // no condition
-} CompOp;
-
-
-/********************************************************************************
- The scan iterator is NOT required to be implemented for the part 1 of the project
- ********************************************************************************/
-
-# define RBFM_EOF (-1)  // end of a scan operator
 
 // RBFM_ScanIterator is an iterator to go through records
 // The way to use it is like the following:
@@ -128,8 +78,6 @@ public:
     RC openFile(const string &fileName, FileHandle &fileHandle);
     
     RC closeFile(FileHandle &fileHandle);
-    
-    bool fileExists(const string & filename);
     
     short getTotalUsedSlotsNum(const void * buffer);
     
@@ -199,6 +147,7 @@ private:
     static RecordBasedFileManager *_rbf_manager;
     
     PagedFileManager *_pbf_manager;
+    UtilsManager * _utils;
 
 };
 

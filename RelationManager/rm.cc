@@ -21,85 +21,6 @@ const int USER = 1;
  Below
  --------------------------------------------------------------------------------------- */
 
-void print_charR(const unsigned char oneChar) {
-    unsigned char mask;
-    cout << '[';
-    for(int i = 0; i < 8; i++) {
-        mask = (0x80 >> i);
-        if ((oneChar & mask) == mask) {
-            cout << '1';
-        }
-        else {
-            cout << '0';
-        }
-    }
-    cout << ']' << endl;
-}
-void print_bytesR(const void *object, size_t size)
-{
-    // This is for C++; in C just drop the static_cast<>() and assign.
-    //    const unsigned char * const bytes = static_cast<const unsigned char *>(object);
-    unsigned char data[size];
-    memcpy(data, object, size);
-    for (int i = 0; i < size; i++) {
-        cout << "char " << i << endl;
-        print_charR(data[i]);
-    }
-}
-
-string getStringFromR(const void * data,
-                     const short & offset) {
-    int strLen;
-    memcpy(&strLen, (char*)data + offset, sizeof(int));
-    // no Varchar entry takes memory more than 1 page
-    char strVal[PAGE_SIZE];
-    memcpy(&strVal, (char*)data + offset + sizeof(int), (size_t) strLen);
-    strVal[strLen] = '\0';
-    return string(strVal);
-}
-
-
-RC printEncodedR(const vector<Attribute> &recordDescriptor,
-                const void * data) {
-    
-    print_bytesR(data, (size_t)31);
-    
-    string output;
-    string tab = "\t";
-    string newline = "\n";
-    string nullstr = "NULL";
-    
-    short dataOfs = 1;
-    
-    for(int i = 0; i < recordDescriptor.size(); i++) {
-        output += recordDescriptor[i].name;
-        output += tab;
-        switch (recordDescriptor[i].type) {
-            case TypeInt:
-                int intVal;
-                memcpy(&intVal, (char*)data + dataOfs, sizeof(int));
-                output += to_string(intVal);
-                dataOfs += 4;
-                break;
-            case TypeReal:
-                float realVal;
-                memcpy(&realVal, (char*)data + dataOfs, sizeof(float));
-                output += to_string(realVal);
-                dataOfs += 4;
-                break;
-            case TypeVarChar:
-                string strVal = getStringFromR(data, dataOfs);
-                output += strVal;
-                dataOfs += 4;
-                dataOfs += strVal.length();
-                break;
-        }
-        output += newline;
-    }
-    cout << output << endl;
-    return 0;
-}
-
 void printDescriptor(const vector<Attribute> descriptor)
 {
     for (Attribute attr : descriptor) {
@@ -424,7 +345,7 @@ RelationManager::RelationManager()
 {
     _rbf_manager = RecordBasedFileManager::instance();
     
-    if (_rbf_manager->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) && _rbf_manager->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
+    if (_utils->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) && _utils->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
         
         _rbf_manager->openFile(INIT_TABLE_NAME + DAT_FILE_SUFFIX, tableHandle);
         TABLEMAP.clear(); // global
@@ -449,7 +370,7 @@ RelationManager::~RelationManager()
 
 RC RelationManager::createCatalog()
 {
-    if (_rbf_manager->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) || _rbf_manager->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
+    if (_utils->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) || _utils->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
         cout << "Catalog TABLE.dat and COLUMN.dat already exists." << endl;
         return -1;
     }
@@ -545,11 +466,11 @@ RC RelationManager::createCatalog()
 
 RC RelationManager::deleteCatalog()
 {
-    if (_rbf_manager->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX)) {
+    if (_utils->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX)) {
         _rbf_manager->destroyFile(INIT_TABLE_NAME + DAT_FILE_SUFFIX);
     }
     
-    if (_rbf_manager->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
+    if (_utils->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
         _rbf_manager->destroyFile(INIT_COLUMN_NAME + DAT_FILE_SUFFIX);
     }
     
@@ -569,14 +490,14 @@ RC RelationManager::createTable(const string &tableName,
                                 const vector<Attribute> &attrs)
 {
     // check existence of the corresponding file 'cause there shouldn't be.
-    if (_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         cout << "The table already exists." << endl;
         return -1;
     }
     _rbf_manager->createFile(tableName + DAT_FILE_SUFFIX);
     
     // check existence of the primitive two files: TABLE and COLUMN
-    if (!_rbf_manager->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) || !_rbf_manager->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(INIT_TABLE_NAME + DAT_FILE_SUFFIX) || !_utils->fileExists(INIT_COLUMN_NAME + DAT_FILE_SUFFIX)) {
         cout << "Catalog TABLE.dat and COLUMN.dat don't exist." << endl;
         return -1;
     }
@@ -619,7 +540,7 @@ RC RelationManager::createTable(const string &tableName,
 
 RC RelationManager::deleteTable(const string &tableName)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     if (checkOwnership(TABLEMAP[tableName]) == SYSTEM) {
@@ -646,7 +567,7 @@ RC RelationManager::deleteTable(const string &tableName)
 
 RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &attrs)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     // get attributes about a table from COLUMNSMAP
@@ -660,7 +581,7 @@ RC RelationManager::getAttributes(const string &tableName, vector<Attribute> &at
 
 RC RelationManager::insertTuple(const string &tableName, const void *data, RID &rid)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     if (checkOwnership(TABLEMAP[tableName]) == SYSTEM) {
@@ -682,7 +603,7 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
 
 RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     if (checkOwnership(TABLEMAP[tableName]) == SYSTEM) {
@@ -704,7 +625,7 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 
 RC RelationManager::updateTuple(const string &tableName, const void *data, const RID &rid)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     if (checkOwnership(TABLEMAP[tableName]) == SYSTEM) {
@@ -726,7 +647,7 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
 
 RC RelationManager::readTuple(const string &tableName, const RID &rid, void *data)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     // no ownership check required
@@ -752,7 +673,7 @@ RC RelationManager::printTuple(const vector<Attribute> &attrs, const void *data)
 
 RC RelationManager::readAttribute(const string &tableName, const RID &rid, const string &attributeName, void *data)
 {
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     // no ownership check required
@@ -779,7 +700,7 @@ RC RelationManager::scan(const string &tableName,
                          RM_ScanIterator &rm_ScanIterator)
 {
     
-    if (!_rbf_manager->fileExists(tableName + DAT_FILE_SUFFIX)) {
+    if (!_utils->fileExists(tableName + DAT_FILE_SUFFIX)) {
         return -1;
     }
     // no ownership check required

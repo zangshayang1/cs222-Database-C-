@@ -4,15 +4,6 @@
 #include <iostream>
 #include <unordered_map>
 
-
-const short ATTR_NULL_FLAG = -1;
-const short SLOT_OFFSET_CLEAN = -2;
-const short SLOT_RECLEN_CLEAN = -3;
-const int PAGENUM_UNAVAILABLE = -4;
-const int EMPTY_BYTE = -5;
-// memset() takes int but fill the block using unsigned char interpretation
-
-
 RecordBasedFileManager* RecordBasedFileManager::_rbf_manager = nullptr;
 
 RecordBasedFileManager* RecordBasedFileManager::instance()
@@ -52,11 +43,6 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
     return _pbf_manager->closeFile(fileHandle);
 }
 
-bool RecordBasedFileManager::fileExists(const string & filename) {
-    return _pbf_manager->fileExists(filename);
-}
-
-
 /* ---------------------------------------------------------------------------------------
  General
  
@@ -67,45 +53,7 @@ bool RecordBasedFileManager::fileExists(const string & filename) {
  Below
 --------------------------------------------------------------------------------------- */
 
-void print_char(const unsigned char oneChar) {
-    unsigned char mask;
-    cout << '[';
-    for(int i = 0; i < 8; i++) {
-        mask = (0x80 >> i);
-        if ((oneChar & mask) == mask) {
-            cout << '1';
-        }
-        else {
-            cout << '0';
-        }
-    }
-    cout << ']' << endl;
-}
-void print_bytes(void *object, size_t size)
-{
-    // This is for C++; in C just drop the static_cast<>() and assign.
-    //    const unsigned char * const bytes = static_cast<const unsigned char *>(object);
-    unsigned char data[size];
-    memcpy(data, object, size);
-    for (int i = 0; i < size; i++) {
-        cout << "char " << i << endl;
-        print_char(data[i]);
-    }
-}
 
-
-// this function returns string content from the given data chunk and offset
-// NOTE that the first 4bytes make an int indicator of the strLen
-string getStringFrom(const void * data,
-                     const short & offset) {
-    int strLen;
-    memcpy(&strLen, (char*)data + offset, sizeof(int));
-    // no Varchar entry takes memory more than 1 page
-    char strVal[PAGE_SIZE];
-    memcpy(strVal, (char*)data + offset + sizeof(int), (size_t) strLen);
-    strVal[strLen] = '\0';
-    return string(strVal);
-}
 
 short getTotalSlotsNum(const void * data) {
     short totSlots;
@@ -332,54 +280,7 @@ void * getRecordRecursive(FileHandle & fileHandle,
     }
 }
 
-RC printDecoded(const vector<Attribute> &recordDescriptor,
-                const void *decodedRec) {
-    string output;
-    string tab = "\t";
-    string newline = "\n";
-    string nullstr = "NULL";
-    
-    auto fieldNum = (short) recordDescriptor.size();
-    
-    short thisFieldDataOfs = fieldNum * sizeof(short);
-    for(int i = 0; i < recordDescriptor.size(); i++) {
-        output += recordDescriptor[i].name;
-        output += tab;
-        
-        auto nextFieldDataOfs = *(short*)((char*)decodedRec + i * sizeof(short));
-        if (nextFieldDataOfs == ATTR_NULL_FLAG) {
-            /*
-             * if this field is NULL (encoded by nextFieldDataOfs == ATTR_NULL_FLAG)
-             * then the current value of thisFieldDataOfs holds is the start of the next field.
-             * if the next field is still NULL
-             * thisFieldDataOfs still holds.
-             */
-            output += nullstr;
-            output += newline;
-            continue;
-        }
-        switch (recordDescriptor[i].type) {
-            case TypeInt:
-                int intVal;
-                memcpy(&intVal, (char*)decodedRec + thisFieldDataOfs, sizeof(int));
-                output += to_string(intVal);
-                break;
-            case TypeReal:
-                float realVal;
-                memcpy(&realVal, (char*)decodedRec + thisFieldDataOfs, sizeof(float));
-                output += to_string(realVal);
-                break;
-            case TypeVarChar:
-                string strVal = getStringFrom(decodedRec, thisFieldDataOfs);
-                output += strVal;
-                break;
-        }
-        output += newline;
-        thisFieldDataOfs = nextFieldDataOfs;
-    }
-    cout << output << endl;
-    return 0;
-}
+
 
 /* ---------------------------------------------------------------------------------------
  General
@@ -463,7 +364,7 @@ void * RecordBasedFileManager::decodeMetaFrom(const void* data,
                     dataLength += (short) sizeof(float);
                     break;
                 case TypeVarChar:
-                    dataLength += getStringFrom(data, dataLength).length();
+                    dataLength += _utils->getStringFrom(data, dataLength).length();
                     dataLength += (short) sizeof(int);
                     break;
                 default:
@@ -754,7 +655,7 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
                     break;
                 }
                 case TypeVarChar: {
-                    string str = getStringFrom(data, offset);
+                    string str = _utils->getStringFrom(data, offset);
                     output += str;
                     offset += (short) sizeof(int);
                     offset += (short) str.length();
@@ -1278,12 +1179,23 @@ bool compareReal(const void * attrData,
             break;
     }
 }
+
+string getStringFromMemStd(const void * data) {
+    int strLen = *(int*)data;
+    // no Varchar entry takes memory more than 1 page
+    char strVal[PAGE_SIZE];
+    memcpy(strVal, (char*)data + sizeof(int), (size_t) strLen);
+    strVal[strLen] = '\0';
+    return string(strVal);
+}
+
 bool compareVarChar(const void * attrData,
                 const CompOp & compOp,
                 const void * value)
 {
-    string attrStr = getStringFrom(attrData, 0);
-    string valueStr = getStringFrom(value, 0);
+    
+    string attrStr = getStringFromMemStd(attrData);
+    string valueStr = getStringFromMemStd(value);
     switch (compOp) {
         case EQ_OP:
             return (attrStr.compare(valueStr) == 0);

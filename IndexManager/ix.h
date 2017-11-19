@@ -4,9 +4,12 @@
 #include <vector>
 #include <string>
 
-#include "../rbf/rbfm.h"
+#include "../Utils/utils.h"
+#include "../FileManager/rbfm.h"
 
 # define IX_EOF (-1)  // end of the index scan
+
+using namespace std;
 
 class IX_ScanIterator;
 class IXFileHandle;
@@ -52,6 +55,7 @@ class IndexManager {
 
     private:
         static IndexManager *_index_manager;
+        UtilsManager * _utils;
 };
 
 

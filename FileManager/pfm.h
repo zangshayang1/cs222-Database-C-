@@ -1,19 +1,11 @@
 #ifndef _pfm_h_
 #define _pfm_h_
 
-typedef unsigned PageNum;
-typedef unsigned SlotNum;
-typedef int RC;
-typedef char byte;
-typedef unsigned char CompressedPageNum[3];
-typedef unsigned char CompressedSlotNum[2];
 
-#define PAGE_SIZE 4096
 
-#include <stdio.h>
-#include <string>
+
 #include <climits>
-#include <stdio.h>
+#include "../Utils/utils.h"
 
 using namespace std;
 
@@ -29,14 +21,13 @@ public:
     RC openFile      (const string &fileName, FileHandle &fileHandle);    // Open a file
     RC closeFile     (FileHandle &fileHandle);                            // Close a file
     
-    bool fileExists(const string &filename);
-    
 protected:
     PagedFileManager();                                                   // Constructor
     ~PagedFileManager();                                                  // Destructor
     
 private:
     static PagedFileManager *_pf_manager;
+    UtilsManager * _utils;
     
 };
 

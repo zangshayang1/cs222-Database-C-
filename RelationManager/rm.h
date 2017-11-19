@@ -115,7 +115,9 @@ private:
     RecordBasedFileManager *_rbf_manager;
     unordered_map<string, Table> TABLEMAP;
     unordered_map<int, vector<Column>> COLUMNSMAP;
+    
     static RelationManager* _rm;
+    UtilsManager * _utils;
     
     RC _loadTABLE(FileHandle & tableHandle);
     RC _loadCOLUMN(FileHandle & columnHandle);
