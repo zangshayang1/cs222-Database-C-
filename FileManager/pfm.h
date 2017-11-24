@@ -37,7 +37,7 @@ public:
     unsigned writePageCounter;
     unsigned appendPageCounter;
     string fileName;
-    FILE * pFile; // <stdio.h>
+    FILE * pFile;
     
     FileHandle();                                                         // Default constructor
     ~FileHandle();                                                        // Destructor
@@ -49,7 +49,8 @@ public:
     RC appendPage(const void *data);
     // Append a specific page
     
-    unsigned getNumberOfPages();                                          // Get the number of pages in the file
+    unsigned getNumberOfPages();
+    // Get the number of pages in the file
     RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);  // Put the current counter values into variables
     
 };

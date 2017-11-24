@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <vector>
 #include <unordered_map>
+#include <assert.h>
 
 /*
  * DEFINE MACROS
@@ -30,6 +31,8 @@
 
 # define RBFM_EOF (-1)  // end of a scan operator
 
+# define IX_EOF (-1)  // end of the index scan
+
 using namespace std;
 
 /*
@@ -37,13 +40,6 @@ using namespace std;
  */
 
 // pfm
-typedef unsigned PageNum;
-typedef unsigned SlotNum;
-typedef int RC;
-typedef char byte;
-typedef unsigned char CompressedPageNum[3];
-typedef unsigned char CompressedSlotNum[2];
-
 const unsigned STAT_NUM = 3;
 const unsigned READ_PAGE_COUNTER_OFFSET = 0;
 const unsigned WRITE_PAGE_COUNTER_OFFSET = READ_PAGE_COUNTER_OFFSET + sizeof(unsigned);
@@ -65,12 +61,23 @@ const string DAT_FILE_SUFFIX = ".dat";
 const int SYSTEM = -1;
 const int USER = 1;
 
+// ix
+const unsigned LEAF = 0;
+const unsigned BRANCH = 1;
+
 /*
  * STRUCT TYPE
  */
+typedef unsigned PageNum;
+typedef unsigned SlotNum;
+typedef int RC;
+typedef char byte;
+typedef unsigned char CompressedPageNum[3];
+typedef unsigned char CompressedSlotNum[2];
 typedef enum { TypeInt = 0, TypeReal = 1, TypeVarChar = 2 } AttrType;
-
 typedef unsigned AttrLength;
+
+typedef enum { Leaf = LEAF, Branch = BRANCH } NodeType;
 
 struct Attribute {
     string   name;     // attribute name
@@ -85,13 +92,19 @@ typedef struct
     SlotNum slotNum;    // slot number in the page
 } RID;
 
+// Next Tuple
+typedef struct
+{
+    PageNum pageNum;
+    short tupleOfs;
+} TupleID;
+
 // Beacon (used to indicate where the record is really located. It is needed when an updateRecord operation cannot be done in its original page. This way, once a RID is initialized when a record is initially inserted, it doesn't change.)
 typedef struct
 {
     CompressedPageNum cpsdPageNum; // compressed page number
     CompressedSlotNum cpsdSlotNum; // compressed slot number
 } Beacon;
-
 
 
 // Comparison Operator (NOT needed for part 1 of the project)
@@ -120,7 +133,20 @@ public:
                          const short & offset);
     void printDecoded(const vector<Attribute> &recordDescriptor,
                       const void *decodedRec);
+    RC readFileStatsFrom(const string & fileName,
+                         unsigned & readPageCounter,
+                         unsigned & writePageCounter,
+                         unsigned & appendPageCounter);
 
+    RC writeFileStatsTo(const string & fileName,
+                        const unsigned & readPageCounter,
+                        const unsigned & writePageCounter,
+                        const unsigned & appendPageCounter);
+    
+    RID getRidAt(const void * data);
+    TupleID getTupleIdAt(const void * data);
+    
+    bool sameTupleID(const TupleID & a, const TupleID & b);
     
 private:
     static UtilsManager * _utils_manager;

@@ -1,6 +1,11 @@
 #include "utils.h"
 
-
+/*
+ * UtilsManager doesn't have an explicitly defined constructor
+ * When we call new UtilsManager(), the implicit constructor will be invoked.
+ * We intend to make it a globally unique instance
+ * So we define a instance() method, and the following is the only place this method will be invoked.
+ */
 
 UtilsManager* UtilsManager::_utils_manager = 0;
 
@@ -69,7 +74,8 @@ string UtilsManager::getStringFrom(const void * data,
 }
 
 void UtilsManager::printDecoded(const vector<Attribute> &recordDescriptor,
-                const void *decodedRec) {
+                                const void *decodedRec)
+{
     string output;
     string tab = "\t";
     string newline = "\n";
@@ -115,3 +121,63 @@ void UtilsManager::printDecoded(const vector<Attribute> &recordDescriptor,
     }
     cout << output << endl;
 }
+
+RC UtilsManager::readFileStatsFrom(const string & fileName,
+                                   unsigned & readPageCounter,
+                                   unsigned & writePageCounter,
+                                   unsigned & appendPageCounter)
+{
+    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
+    fread(buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
+    memcpy(&readPageCounter, (char*)buffer + READ_PAGE_COUNTER_OFFSET, sizeof(unsigned));
+    memcpy(&writePageCounter, (char*)buffer + WRITE_PAGE_COUNTER_OFFSET, sizeof(unsigned));
+    memcpy(&appendPageCounter, (char*)buffer + APPEND_PAGE_COUNTER_OFFSET, sizeof(unsigned));
+    free(buffer);
+    fclose(fptr);
+    
+    return 0;
+}
+
+RC UtilsManager::writeFileStatsTo(const string & fileName,
+                                  const unsigned & readPageCounter,
+                                  const unsigned & writePageCounter,
+                                  const unsigned & appendPageCounter)
+{
+    FILE * fptr = fopen(statFileNameOf(fileName).c_str(), "rb+");
+    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
+    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, & readPageCounter, sizeof(unsigned));
+    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, & writePageCounter, sizeof(unsigned));
+    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, & appendPageCounter, sizeof(unsigned));
+    fwrite((char*)buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
+    fflush(fptr);
+    free(buffer);
+    fclose(fptr);
+    
+    return 0;
+}
+
+RID UtilsManager::getRidAt(const void * data)
+{
+    RID rid;
+    rid.pageNum = *(PageNum*)data;
+    rid.slotNum = *(SlotNum*)((char*)data + sizeof(PageNum));
+    return rid;
+}
+TupleID UtilsManager::getTupleIdAt(const void * data)
+{
+    TupleID tid;
+    tid.pageNum = *(PageNum*)data;
+    tid.tupleOfs = *(short*)((char*)data + sizeof(PageNum));
+    return tid;
+}
+bool UtilsManager::sameTupleID(const TupleID & a, const TupleID & b)
+{
+    if (a.pageNum == b.pageNum && a.tupleOfs == b.tupleOfs) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
+

@@ -139,7 +139,7 @@ protected:
 private:
     static RecordBasedFileManager *_rbf_manager;
     
-    PagedFileManager *_pbf_manager;
+    PagedFileManager * _pfm;
     UtilsManager * _utils;
 
 };

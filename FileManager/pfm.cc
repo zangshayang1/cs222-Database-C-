@@ -84,20 +84,10 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     }
     
     // read persistent counters from disk
-    FILE * fptr = fopen(_utils->statFileNameOf(fileName).c_str(), "rb+");
-    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
-    fread(buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
-    unsigned readPageCounter;
-    unsigned writePageCounter;
-    unsigned appendPageCounter;
-    memcpy(&readPageCounter, (char*)buffer + READ_PAGE_COUNTER_OFFSET, sizeof(unsigned));
-    memcpy(&writePageCounter, (char*)buffer + WRITE_PAGE_COUNTER_OFFSET, sizeof(unsigned));
-    memcpy(&appendPageCounter, (char*)buffer + APPEND_PAGE_COUNTER_OFFSET, sizeof(unsigned));
-    fileHandle.readPageCounter = readPageCounter;
-    fileHandle.writePageCounter = writePageCounter;
-    fileHandle.appendPageCounter = appendPageCounter;
-    free(buffer);
-    fclose(fptr);
+    _utils->readFileStatsFrom(fileName,
+                              fileHandle.readPageCounter,
+                              fileHandle.writePageCounter,
+                              fileHandle.appendPageCounter);
     return 0;
 }
 
@@ -105,20 +95,15 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
 RC PagedFileManager::closeFile(FileHandle &fileHandle)
 {
     if (fileHandle.pFile == NULL) {
+        // file wasn't opened.
         return -1;
     }
-    
-    FILE * fptr = fopen(_utils->statFileNameOf(fileHandle.fileName).c_str(), "rb+");
-    void * buffer = malloc(sizeof(unsigned) * STAT_NUM);
-    memcpy((char*)buffer + READ_PAGE_COUNTER_OFFSET, &fileHandle.readPageCounter, sizeof(unsigned));
-    memcpy((char*)buffer + WRITE_PAGE_COUNTER_OFFSET, &fileHandle.writePageCounter, sizeof(unsigned));
-    memcpy((char*)buffer + APPEND_PAGE_COUNTER_OFFSET, &fileHandle.appendPageCounter, sizeof(unsigned));
-    fwrite((char*)buffer, sizeof(char), sizeof(unsigned) * STAT_NUM, fptr);
-    fflush(fptr);
-    free(buffer);
-    fclose(fptr);
+    _utils->writeFileStatsTo(fileHandle.fileName,
+                             fileHandle.readPageCounter,
+                             fileHandle.writePageCounter,
+                             fileHandle.appendPageCounter);
+
     fclose(fileHandle.pFile);
-    
     return 0;
 }
 

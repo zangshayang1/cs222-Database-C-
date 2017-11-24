@@ -12,7 +12,7 @@ RecordBasedFileManager* RecordBasedFileManager::instance()
 
 RecordBasedFileManager::RecordBasedFileManager()
 {
-    _pbf_manager = PagedFileManager::instance();
+    _pfm = PagedFileManager::instance();
 }
 
 RecordBasedFileManager::~RecordBasedFileManager()
@@ -24,19 +24,19 @@ RecordBasedFileManager::~RecordBasedFileManager()
  The following file-based operations are entired built on top of FileBasedManager()
  */
 RC RecordBasedFileManager::createFile(const string &fileName) {
-    return _pbf_manager->createFile(fileName);
+    return _pfm->createFile(fileName);
 }
 
 RC RecordBasedFileManager::destroyFile(const string &fileName) {
-    return _pbf_manager->destroyFile(fileName);
+    return _pfm->destroyFile(fileName);
 }
 
 RC RecordBasedFileManager::openFile(const string &fileName, FileHandle &fileHandle) {
-    return _pbf_manager->openFile(fileName, fileHandle);
+    return _pfm->openFile(fileName, fileHandle);
 }
 
 RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
-    return _pbf_manager->closeFile(fileHandle);
+    return _pfm->closeFile(fileHandle);
 }
 
 /* ---------------------------------------------------------------------------------------
