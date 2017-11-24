@@ -3,8 +3,8 @@
 
 #include "../Utils/utils.h"
 #include "../FileManager/rbfm.h"
+#include "node.h"
 
-# define IX_EOF (-1)  // end of the index scan
 
 using namespace std;
 
@@ -13,46 +13,68 @@ class IXFileHandle;
 
 class IndexManager {
 
-    public:
-        static IndexManager* instance();
+public:
+    static IndexManager* instance();
 
-        // Create an index file.
-        RC createFile(const string &fileName);
+    // Create an index file.
+    RC createFile(const string &fileName);
 
-        // Delete an index file.
-        RC destroyFile(const string &fileName);
+    // Delete an index file.
+    RC destroyFile(const string &fileName);
 
-        // Open an index and return an ixfileHandle.
-        RC openFile(const string &fileName, IXFileHandle &ixfileHandle);
+    // Open an index and return an ixfileHandle.
+    RC openFile(const string &fileName, IXFileHandle &ixfileHandle);
 
-        // Close an ixfileHandle for an index.
-        RC closeFile(IXFileHandle &ixfileHandle);
+    // Close an ixfileHandle for an index.
+    RC closeFile(IXFileHandle &ixfileHandle);
 
-        // Insert an entry into the given index that is indicated by the given ixfileHandle.
-        RC insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
+    // Insert an entry into the given index that is indicated by the given ixfileHandle.
+    RC insertEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
 
-        // Delete an entry from the given index that is indicated by the given ixfileHandle.
-        RC deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
+    // Delete an entry from the given index that is indicated by the given ixfileHandle.
+    RC deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid);
 
-        // Initialize and IX_ScanIterator to support a range search
-        RC scan(IXFileHandle &ixfileHandle,
-                const Attribute &attribute,
-                const void *lowKey,
-                const void *highKey,
-                bool lowKeyInclusive,
-                bool highKeyInclusive,
-                IX_ScanIterator &ix_ScanIterator);
+    // Initialize and IX_ScanIterator to support a range search
+    RC scan(IXFileHandle &ixfileHandle,
+            const Attribute &attribute,
+            const void *lowKey,
+            const void *highKey,
+            bool lowKeyInclusive,
+            bool highKeyInclusive,
+            IX_ScanIterator &ix_ScanIterator);
 
-        // Print the B+ tree in pre-order (in a JSON record format)
-        void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
+    // Print the B+ tree in pre-order (in a JSON record format)
+    void printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const;
 
-    protected:
-        IndexManager();
-        ~IndexManager();
+protected:
+    IndexManager();
+    ~IndexManager();
 
-    private:
-        static IndexManager *_index_manager;
-        UtilsManager * _utils;
+private:
+    static IndexManager *_index_manager;
+    PagedFileManager * _pfm;
+    UtilsManager * _utils;
+    
+    RC _createBplusRootWith(IXFileHandle & ixFileHandle,
+                            const AttrType & keyType,
+                            const void * key,
+                            const RID & rid);
+    RC _createNewLeafWith(IXFileHandle & ixFileHandle,
+                          PageNum & pageNum,
+                          const AttrType & keyType,
+                          const void * key,
+                          const RID & rid);
+    RC _insertIntoLeafAt(IXFileHandle & ixFileHandle,
+                         const PageNum & pageNum,
+                         const AttrType & keyType,
+                         const void * key,
+                         const RID & rid,
+                         void * newChildEntry);
+    RC _insertIntoBplusTree(IXFileHandle & ixFileHandle,
+                            const PageNum & pageNum,
+                            const AttrType & keyType,
+                            const void * key,
+                            const RID & rid);
 };
 
 
@@ -74,23 +96,31 @@ class IX_ScanIterator {
 
 
 
-class IXFileHandle {
+class IXFileHandle : public FileHandle {
     public:
 
-    // variables to keep counter for each operation
-    unsigned ixReadPageCounter;
-    unsigned ixWritePageCounter;
-    unsigned ixAppendPageCounter;
+/*
+ * Inherited from the FileHandle class
 
+    unsigned readPageCounter;
+    unsigned writePageCounter;
+    unsigned appendPageCounter;
+    string fileName;
+    FILE * pFile;
+ 
+    RC readPage(PageNum pageNum, void *data);
+    RC writePage(PageNum pageNum, const void *data);
+    RC appendPage(const void *data);
+    RC collectCounterValues(unsigned &readPageCount,
+                            unsigned &writePageCount,
+                            unsigned &appendPageCount);
+    unsigned getNumberOfPages();
+*/
     // Constructor
     IXFileHandle();
 
     // Destructor
     ~IXFileHandle();
-
-	// Put the current counter values of associated PF FileHandles into variables
-	RC collectCounterValues(unsigned &readPageCount, unsigned &writePageCount, unsigned &appendPageCount);
-
 };
 
 #endif
