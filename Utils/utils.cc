@@ -164,20 +164,3 @@ RID UtilsManager::getRidAt(const void * data)
     rid.slotNum = *(SlotNum*)((char*)data + sizeof(PageNum));
     return rid;
 }
-TupleID UtilsManager::getTupleIdAt(const void * data)
-{
-    TupleID tid;
-    tid.pageNum = *(PageNum*)data;
-    tid.tupleOfs = *(short*)((char*)data + sizeof(PageNum));
-    return tid;
-}
-bool UtilsManager::sameTupleID(const TupleID & a, const TupleID & b)
-{
-    if (a.pageNum == b.pageNum && a.tupleOfs == b.tupleOfs) {
-        return true;
-    }
-    else {
-        return false;
-    }
-}
-

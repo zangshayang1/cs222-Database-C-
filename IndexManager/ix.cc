@@ -39,11 +39,14 @@ RC IndexManager::openFile(const string &fileName, IXFileHandle & ixFileHandle)
     if (!_utils->fileExists(fileName)) {
         return -1;
     }
+    if (ixFileHandle.pFile != nullptr) {
+        return -1;
+    }
     // read binary and update
     ixFileHandle.pFile = fopen(fileName.c_str(), "rb+");
     ixFileHandle.fileName = fileName;
     
-    if (ixFileHandle.pFile == NULL) {
+    if (ixFileHandle.pFile == nullptr) {
         return -1;
     }
     
@@ -70,161 +73,228 @@ RC IndexManager::closeFile(IXFileHandle & ixFileHandle)
     return 0;
 }
 
-RC IndexManager::_createBplusRootWith(IXFileHandle & ixFileHandle,
+/*
+ * --------------------------------------------------------------------
+ */
+
+RC IndexManager::_createNewNode(const NodeType & nodeType,
+                                const AttrType & keyType,
+                                IndexNode & newNode)
+{
+    void * buffer = malloc(PAGE_SIZE);
+    newNode = IndexNode(buffer); // memcpy of the buffer
+    free(buffer);
+    newNode.initializeEmptyNode();
+    newNode.setKeyType(keyType);
+    newNode.setNextPageNum(NO_MORE_PAGE);
+    newNode.setFreeSpaceOfs(0);
+    newNode.setThisNodeType(nodeType);
+    
+    return 0;
+}
+
+RC IndexManager::_initializeBplusRoot(const NodeType & nodeType,
+                                      const AttrType & keyType,
+                                      IndexNode & root)
+{
+    _createNewNode(nodeType, keyType, root);
+    return 0;
+}
+
+
+RC IndexManager::_insertIntoLeafTupleList(IndexNode & leaf,
+                                          LeafTuple & inserted,
+                                          LeafTuple & head)
+{
+    leaf.rolloutOfBuffer(head);
+    
+    LeafTuple * prevptr = nullptr;
+    LeafTuple * headptr = & head;
+    while (headptr != nullptr && *headptr <= inserted)
+    {
+        prevptr = headptr;
+        headptr = headptr->next;
+    }
+    if (prevptr == nullptr) {
+        inserted.next = headptr;
+        head = inserted;
+    }
+    else if (headptr == nullptr) {
+        headptr->next = & inserted;
+    }
+    else {
+        prevptr->next = & inserted;
+        inserted.next = headptr;
+    }
+    return 0;
+}
+
+RC IndexManager::_insertIntoBranchTupleList(IndexNode & branch,
+                                            BranchTuple & inserted,
+                                            BranchTuple & head)
+{
+    branch.rolloutOfBuffer(head);
+    
+    BranchTuple * prevptr = nullptr;
+    BranchTuple * headptr = & head;
+    while (headptr != nullptr && *headptr <= inserted)
+    {
+        prevptr = headptr;
+        headptr = headptr->next;
+    }
+    if (prevptr == nullptr) {
+        inserted.next = headptr;
+        head = inserted;
+    }
+    else if (headptr == nullptr) {
+        headptr->next = & inserted;
+    }
+    else {
+        prevptr->next = & inserted;
+        inserted.next = headptr;
+    }
+    return 0;
+}
+
+RC IndexManager::_splitLeafTupleList(LeafTuple & first, LeafTuple & second)
+{
+    LeafTuple * fast = & first;
+    LeafTuple * slow = & first;
+    while (fast != nullptr && fast->next != nullptr) {
+        fast = fast->next->next;
+        slow = slow->next;
+    }
+    second = *slow->next;
+    slow->next = nullptr;
+    
+    return 0;
+}
+RC IndexManager::_splitBranchTupleList(BranchTuple & first, BranchTuple & second)
+{
+    BranchTuple * fast = & first;
+    BranchTuple * slow = & first;
+    while (fast != nullptr && fast->next != nullptr) {
+        fast = fast->next->next;
+        slow = slow->next;
+    }
+    second = *slow->next;
+    slow->next = nullptr;
+    
+    return 0;
+}
+
+RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
+                                 IndexNode * newChildPtr,
+                                 IXFileHandle & ixFileHandle,
+                                 const AttrType & keyType,
+                                 const void * key,
+                                 const RID & rid)
+{
+    LeafTuple inserted = LeafTuple(key, keyType, rid);
+    
+    short freeSpaceAmount = leaf.getFreeSpaceAmount(); // curt space
+    
+    // EMPTY PAGE
+    if (freeSpaceAmount == IDX_INFO_LEFT_BOUND_OFS) {
+        leaf.rollinToBuffer(inserted);
+        ixFileHandle.writePage(leaf.getThisPageNum(), leaf.getBufferPtr());
+        return 0;
+    }
+    
+    LeafTuple first;
+    _insertIntoLeafTupleList(leaf, inserted, first);
+    
+    // ENOUGH SPACE
+    if (freeSpaceAmount >= inserted.getLength()) {
+        leaf.rollinToBuffer(first);
+        ixFileHandle.writePage(leaf.getThisPageNum(), leaf.getBufferPtr());
+        return 0;
+    }
+    
+    // NOT ENOUGH
+    LeafTuple second;
+    _splitLeafTupleList(first, second);
+    IndexNode sibling;
+    _createNewNode(Leaf, keyType, sibling);
+    leaf.rollinToBuffer(first);
+    sibling.rollinToBuffer(second);
+    
+    ixFileHandle.appendPage(sibling.getBufferPtr());
+    PageNum newPageNum = ixFileHandle.getNumberOfPages() - 1;
+    sibling.setThisPageNum(newPageNum);
+    leaf.setNextPageNum(newPageNum);
+    newChildPtr = & sibling;
+    
+    return 0;
+}
+
+RC IndexManager::_insertIntoBplusTree(IndexNode & root,
+                                      IndexNode * newChildPtr,
+                                      IXFileHandle & ixFileHandle,
                                       const AttrType & keyType,
                                       const void * key,
-                                      const RID & rid)
-{   PageNum pageNum; // placeholder only, it should also be assigned 0.
-    RC rc = _createNewLeafWith(ixFileHandle, pageNum, keyType, key, rid);
-    return rc;
-}
-RC IndexManager::_createNewLeafWith(IXFileHandle & ixFileHandle,
-                                    PageNum & pageNum,
-                                    const AttrType & keyType,
-                                    const void * key,
-                                    const RID & rid)
-{
-    void * buffer = malloc(PAGE_SIZE);
-    memset(buffer, EMPTY_BYTE, PAGE_SIZE);
-    IndexNode leaf = IndexNode(buffer);
-    NodeType nodeType = Leaf;
-    leaf.setThisNodeType(nodeType);
-    leaf.setFreeSpaceOfs(0);
-    leaf.setNextNode(NO_MORE_PAGE);
-    leaf.setKeyType(keyType);
-    LeafTuple first = LeafTuple(key, keyType, rid);
-    leaf.setLeafTupleAt(FIRST_TUPLE_OFS, first);
-    leaf.setFreeSpaceOfs(first.getLength());
-    ixFileHandle.appendPage(leaf.getBufferPtr());
-    pageNum = ixFileHandle.getNumberOfPages() - 1; // pageIdx starts from 0
-    free(buffer);
-    return 0;
-}
-
-RC IndexManager::_moveHalfLeafTuplesFrom(IXFileHandle & ixFileHandle,
-                                         IndexNode & leafNode,
-                                         const short & totCounter,
-                                         const AttrType & keyType,
-                                         PageNum & newPage)
-{
-    short halfCounter = totCounter / 2 + 1;
-    // find the starting point for the larger half
-    const void * pagePtr = leafNode.getBufferPtr(); // page ptr
-    LeafTuple curt;
-    TupleID tid = {.pageNum = 0, .tupleOfs = 0}; // .pageNum placeholder
-    for(int i = 0; i < halfCounter; i++) {
-        const short ofs = tid.tupleOfs;
-        curt = LeafTuple(pagePtr, ofs, keyType); // (halfCounter)th
-        tid = curt.getNextTupleID();
-    }
-    // set up a new page
-    const short halfStartOfs = tid.tupleOfs;
-    curt = LeafTuple(pagePtr, halfStartOfs, keyType);
-    _createNewLeafWith(ixFileHandle, newPage, keyType, curt.getKeyPtr(), curt.getRid());
-    void * buffer = malloc(PAGE_SIZE);
-    ixFileHandle.readPage(newPage, buffer);
-    IndexNode newLeafNode = IndexNode(buffer);
-    TupleID oldTid = curt.getNextTupleID();
-    // move the rest to the new page
-    for(int i = halfCounter + 1; i < totCounter; i++) {
-        const short ofs = tid.tupleOfs;
-        curt = LeafTuple(pagePtr, ofs, keyType); // (halfCounter + 1)th
-        short freeSpaceOfs = newLeafNode.getFreeSpaceOfs();
-        short nextTupleSpaceOfs = freeSpaceOfs + curt.getLength();
-        TupleID nextTid = {.pageNum = newPage, .tupleOfs = nextTupleSpaceOfs};
-        curt.setNextTupleID(nextTid);
-        newLeafNode.setLeafTupleAt(freeSpaceOfs, curt);
-        newLeafNode.setFreeSpaceOfs(nextTupleSpaceOfs);
-        oldTid = curt.getNextTupleID();
-    }
-    // erase larger half in old page
-    TODO : This is wrong way to do so.
-        
-    memset((char*)pagePtr + halfStartOfs, EMPTY_BYTE, leafNode.getFreeSpaceAmount());
-    ixFileHandle.writePage(newPage, newLeafNode.getBufferPtr());
-    return 0;
-}
-
-RC IndexManager::_insertIntoLeafAt(IXFileHandle & ixFileHandle,
-                                   const PageNum & pageNum,
-                                   const AttrType & keyType,
-                                   const void * key,
-                                   const RID & rid,
-                                   void * newChildEntry)
-{
-    void * buffer = malloc(PAGE_SIZE);
-    ixFileHandle.readPage(pageNum, buffer);
-    IndexNode leaf = IndexNode(buffer);
+                                      const RID & rid) {
+    // search should be implicitly done by the function itself recursively
+    // that's how we can keep track of parent node naturally
     
-    // search the end tuple within the page
-    short counter = 0;
-    const void * pagePtr = leaf.getBufferPtr(); // page ptr
-    LeafTuple curt;
-    TupleID tid = {.pageNum = pageNum, .tupleOfs = 0};
-    do {
-        counter += 1;
-        const short tupleOfs = tid.tupleOfs;
-        curt = LeafTuple(pagePtr, tupleOfs, keyType);
-        tid = curt.getNextTupleID();
-    } while(!_utils->sameTupleID(tid, NO_MORE_TUPLE) &&
-            (tid.pageNum == pageNum)
-            );
-    // found the end tuple while curt holds the previous LeafTuple
-    if (_utils->sameTupleID(tid, NO_MORE_TUPLE)) {
-        LeafTuple tuple = LeafTuple(key, keyType, rid); // set next to NO_MORE
-        TupleID tupleID;
-        if (leaf.getFreeSpaceAmount() >= tuple.getLength()) {
-            tupleID = {
-                .pageNum = pageNum,
-                .tupleOfs = leaf.getFreeSpaceOfs()
-            };
-            leaf.setLeafTupleAt(tupleID.tupleOfs, tuple);
-            leaf.setFreeSpaceOfs(tupleID.tupleOfs + tuple.getLength());
-            newChildEntry = nullptr;
-        }
-        else {
-// MOVE HALF OF leafTuples TO ANOTHER PAGE
-            _moveHalfLeafTuplesFrom(counter)
-//            PageNum newPageNum;
-//            _createNewLeafWith(ixFileHandle, newPageNum, keyType, key, rid);
-//            tupleID = {
-//                .pageNum = newPageNum,
-//                .tupleOfs = 0
-//            };
-        }
-        curt.setNextTupleID(tupleID);
-        ixFileHandle.writePage(pageNum, leaf.getBufferPtr());
-        // write change to old page anyway
-    }
-    else {
-    // didn't find the end tuple
-        _insertIntoLeafAt(ixFileHandle, tid.pageNum, keyType, key, rid);
-    }
-    return 0;
-}
-
-RC IndexManager::_insertIntoBplusTree(IXFileHandle & ixFileHandle,
-                                   const PageNum & pageNum,
-                                   const AttrType & keyType,
-                                   const void * key,
-                                   const RID & rid) {
-    void * buffer = malloc(PAGE_SIZE);
-    ixFileHandle.readPage(pageNum, buffer);
-    IndexNode root = IndexNode(buffer);
-    if (root.getKeyType() != keyType) {
-        cout << "The keyType should be the same for entire tree." << endl;
-        return -1;
-    }
+    // sanity check
+    assert(root.getKeyType() == keyType &&
+           "IndexManager::_insertIntoBplusTree() : The keyType should be the same for entire tree.");
+    
     if (root.getThisNodeType() == Leaf) {
-        _insertIntoLeafAt(ixFileHandle, pageNum, keyType, key, rid);
+        _insertIntoLeaf(root,
+                        newChildPtr,
+                        ixFileHandle,
+                        keyType,
+                        key,
+                        rid);
     }
     else {
-        PageNum nextPage = _searchForNextPageWithin(ixFileHandle, pageNum, key);
-        _insertIntoBplusTree(ixFileHandle,
-                             nextPage,
+        // root is a branchNode
+        PageNum nextPage;
+        root.linearSearchForChildOf(key, keyType, nextPage);
+        
+        void * buffer = malloc(PAGE_SIZE);
+        ixFileHandle.readPage(nextPage, buffer);
+        IndexNode node = IndexNode(buffer);
+        node.initialize();
+        
+        _insertIntoBplusTree(node,
+                             newChildPtr,
+                             ixFileHandle,
                              keyType,
                              key,
                              rid);
+        if (newChildPtr != nullptr) {
+            BranchTuple bubUpBtup = BranchTuple(newChildPtr->getBufferPtr(),
+                                                newChildPtr->getKeyType(),
+                                                node.getThisPageNum(),
+                                                newChildPtr->getThisPageNum());
+            // get current free space amount
+            short freeSpaceAmount = root.getFreeSpaceAmount();
+            // insert bubUpBtup into branch tuple linkedlist
+            BranchTuple first;
+            _insertIntoBranchTupleList(root, bubUpBtup, first);
+            
+            if (freeSpaceAmount > bubUpBtup.getLength()) {
+                root.rollinToBuffer(first);
+                ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
+            }
+            else {
+                BranchTuple second;
+                _splitBranchTupleList(first, second);
+                IndexNode sibling;
+                _createNewNode(Branch, keyType, sibling);
+                root.rollinToBuffer(first);
+                sibling.rollinToBuffer(second);
+                
+                ixFileHandle.appendPage(sibling.getBufferPtr());
+                PageNum newPageNum = ixFileHandle.getNumberOfPages() - 1;
+                sibling.setThisPageNum(newPageNum);
+                root.setNextPageNum(newPageNum);
+                newChildPtr = & sibling; // ptr to the 1st key
+            }
+        }
     }
     return 0;
 }
@@ -234,14 +304,37 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
                              const void *key,
                              const RID &rid)
 {
-    PageNum totPageNum = ixFileHandle.getNumberOfPages();
-    if (totPageNum == 0) {
-        _createBplusRootWith(ixFileHandle, attribute.type, key, rid);
+    if (rootptr == nullptr) {
+        assert(ixFileHandle.getNumberOfPages() == 0 &&
+               "IndexManager::insertEntry() : ERROR");
+        _initializeBplusRoot(Leaf, attribute.type, root);
+        ixFileHandle.appendPage(root.getBufferPtr());
+        root.setThisPageNum(ixFileHandle.getNumberOfPages() - 1);
+        rootptr = & root;
     }
-    else {
-        _insertIntoBplusTree();
+    IndexNode * newChildPtr = nullptr;
+    _insertIntoBplusTree(root,
+                         newChildPtr,
+                         ixFileHandle,
+                         attribute.type,
+                         key,
+                         rid);
+    // root hasn't been modified since the last change
+    if (newChildPtr != nullptr) {
+        // a new root is needed, expand in height
+        IndexNode newRoot;
+        _initializeBplusRoot(Branch, attribute.type, newRoot);
+        BranchTuple bubUpBtup = BranchTuple(newChildPtr->getBufferPtr(),
+                                                      newChildPtr->getKeyType(),
+                                                      root.getThisPageNum(),
+                                                      newChildPtr->getThisPageNum());
+        
+        newRoot.rollinToBuffer(bubUpBtup);
+        ixFileHandle.appendPage(newRoot.getBufferPtr());
+        newRoot.setThisPageNum(ixFileHandle.getNumberOfPages() - 1);
+        root = newRoot;
     }
-    return -1;
+    return 0;
 }
 
 RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)

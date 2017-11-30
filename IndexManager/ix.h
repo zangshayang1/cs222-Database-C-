@@ -14,7 +14,10 @@ class IXFileHandle;
 class IndexManager {
 
 public:
+    
     static IndexManager* instance();
+    IndexNode root;
+    IndexNode * rootptr = nullptr;
 
     // Create an index file.
     RC createFile(const string &fileName);
@@ -55,26 +58,21 @@ private:
     PagedFileManager * _pfm;
     UtilsManager * _utils;
     
-    RC _createBplusRootWith(IXFileHandle & ixFileHandle,
-                            const AttrType & keyType,
-                            const void * key,
-                            const RID & rid);
-    RC _createNewLeafWith(IXFileHandle & ixFileHandle,
-                          PageNum & pageNum,
-                          const AttrType & keyType,
-                          const void * key,
-                          const RID & rid);
-    RC _insertIntoLeafAt(IXFileHandle & ixFileHandle,
-                         const PageNum & pageNum,
-                         const AttrType & keyType,
-                         const void * key,
-                         const RID & rid,
-                         void * newChildEntry);
-    RC _insertIntoBplusTree(IXFileHandle & ixFileHandle,
-                            const PageNum & pageNum,
-                            const AttrType & keyType,
-                            const void * key,
-                            const RID & rid);
+    RC _createNewNode(const NodeType & nodeType, const AttrType & keyType, IndexNode & newNode);
+    
+    RC _initializeBplusRoot(const NodeType & nodeType, const AttrType & keyType, IndexNode & root);
+    
+    RC _insertIntoLeafTupleList(IndexNode & leaf, LeafTuple & inserted, LeafTuple & head);
+    
+    RC _insertIntoBranchTupleList(IndexNode & branch, BranchTuple & inserted, BranchTuple & head);
+    
+    RC _splitLeafTupleList(LeafTuple & first, LeafTuple & second);
+    
+    RC _splitBranchTupleList(BranchTuple & first, BranchTuple & second);
+    
+    RC _insertIntoLeaf(IndexNode & leaf, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
+    
+    RC _insertIntoBplusTree(IndexNode & root, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
 };
 
 

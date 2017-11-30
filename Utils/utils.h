@@ -62,8 +62,9 @@ const int SYSTEM = -1;
 const int USER = 1;
 
 // ix
-const unsigned LEAF = 0;
-const unsigned BRANCH = 1;
+const unsigned LEAF = 1;
+const unsigned BRANCH = 2;
+const unsigned EMPTY = 3;
 
 /*
  * STRUCT TYPE
@@ -77,7 +78,7 @@ typedef unsigned char CompressedSlotNum[2];
 typedef enum { TypeInt = 0, TypeReal = 1, TypeVarChar = 2 } AttrType;
 typedef unsigned AttrLength;
 
-typedef enum { Leaf = LEAF, Branch = BRANCH } NodeType;
+typedef enum { Leaf = LEAF, Branch = BRANCH, Empty = EMPTY} NodeType;
 
 struct Attribute {
     string   name;     // attribute name
@@ -91,13 +92,6 @@ typedef struct
     PageNum pageNum;    // page number
     SlotNum slotNum;    // slot number in the page
 } RID;
-
-// Next Tuple
-typedef struct
-{
-    PageNum pageNum;
-    short tupleOfs;
-} TupleID;
 
 // Beacon (used to indicate where the record is really located. It is needed when an updateRecord operation cannot be done in its original page. This way, once a RID is initialized when a record is initially inserted, it doesn't change.)
 typedef struct
@@ -144,9 +138,7 @@ public:
                         const unsigned & appendPageCounter);
     
     RID getRidAt(const void * data);
-    TupleID getTupleIdAt(const void * data);
-    
-    bool sameTupleID(const TupleID & a, const TupleID & b);
+
     
 private:
     static UtilsManager * _utils_manager;

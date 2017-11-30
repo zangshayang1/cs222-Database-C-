@@ -37,7 +37,7 @@ public:
     unsigned writePageCounter;
     unsigned appendPageCounter;
     string fileName;
-    FILE * pFile;
+    FILE * pFile = nullptr;
     
     FileHandle();                                                         // Default constructor
     ~FileHandle();                                                        // Destructor

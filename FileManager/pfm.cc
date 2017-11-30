@@ -75,11 +75,14 @@ RC PagedFileManager::openFile(const string &fileName, FileHandle &fileHandle)
     if (!_utils->fileExists(fileName)) {
         return -1;
     }
+    if (fileHandle.pFile != nullptr) {
+        return -1;
+    }
     // read binary and update
     fileHandle.pFile = fopen(fileName.c_str(), "rb+");
     fileHandle.fileName = fileName;
 
-    if (fileHandle.pFile == NULL) {
+    if (fileHandle.pFile == nullptr) {
         return -1;
     }
     

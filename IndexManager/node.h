@@ -3,29 +3,27 @@
 
 #include "../Utils/utils.h"
 
-const short IDX_NEXT_NODE_INFO_OFS = 4092; // [92 + 0000]
-const short IDX_NODE_TYPE_INFO_OFS = 4088; // [88 + 0000]
-const short IDX_FREE_SPACE_INFO_OFS = 4086; // [86 + 00]
-const short IDX_KEY_TYPE_INFO_OFS = 4084;
-const short IDX_INFO_LEFT_BOUND_OFS = 4084; // [86]
+const short IDX_NEXT_NODE_PAGENUM = 4092; //   [92 + 0000]
+const short IDX_THIS_NODE_PAGENUM = 4088; //     [88 + 0000]
+const short IDX_NODE_TYPE_INFO_OFS = 4084; //   [84 + 0000]
+const short IDX_FREE_SPACE_INFO_OFS = 4082; //  [82 + 00]
+const short IDX_KEY_TYPE_INFO_OFS = 4080; //    [80 + 00]
+const short IDX_INFO_LEFT_BOUND_OFS = 4080; //  [80]
 
 const PageNum NO_MORE_PAGE = pow(2, 32) - 1;
 const short NO_TUPLE_OFS = pow(2, 16) - 1;
-const TupleID NO_MORE_TUPLE = {
-    .pageNum = NO_MORE_PAGE,
-    .tupleOfs = NO_TUPLE_OFS
-    };
+
 const PageNum ROOT_PAGE = 0;
 const short FIRST_TUPLE_OFS = 0;
 
 using namespace std;
 
 /*
- * class declaration
+ * forward declaration
  */
-class Node;
-class IndexNode;
-class Tuple;
+//class Node;
+//class IndexNode;
+//class Tuple;
 class LeafTuple;
 class BranchTuple;
 
@@ -35,37 +33,55 @@ class BranchTuple;
 class Node
 {
 public:
+    Node() {};
+    ~Node() {};
+    
     Node(void * data);
-    ~Node();
+    
 protected:
     void * _buffer = malloc(PAGE_SIZE);
+    // void * _buffer; seems give it a NULL address WTF?
 };
 
 class IndexNode : public Node
 {
 public:
+    // default
+    IndexNode() {};
+    ~IndexNode() {};
+    
     // constructor
     IndexNode(void * data);
-    ~IndexNode();
+
     // free ofs
     RC setFreeSpaceOfs(const short & freeSpaceOfs);
     short getFreeSpaceOfs();
     short getFreeSpaceAmount();
     // type
-    RC setThisNodeType(NodeType & nodeType);
+    RC setThisNodeType(const NodeType & nodeType);
     NodeType getThisNodeType();
-    // next node
-    RC setNextNode(PageNum next);
-    PageNum getNextNode();
+    // _thisPage
+    RC setThisPageNum(const PageNum & pageNum);
+    PageNum getThisPageNum();
+    // _nextPage
+    RC setNextPageNum(const PageNum & pageNum);
+    PageNum getNextPageNum();
     // key type
-    RC setKeyType(AttrType keyType);
+    RC setKeyType(const AttrType & keyType);
     AttrType getKeyType();
     // get first tuple
     LeafTuple getFirstLeafTuple();
     BranchTuple getFirstBranchTuple();
-    // set tuple
-    RC setLeafTupleAt(const short & tupleOfs, LeafTuple & leafTuple);
-    RC setBranchTupleAt(const short & tupleOfs, BranchTuple & branchTuple);
+    
+    RC initializeEmptyNode();
+    RC initialize();
+    
+    RC rollinToBuffer(LeafTuple & head);
+    RC rolloutOfBuffer(LeafTuple & head);
+    RC rollinToBuffer(BranchTuple & head);
+    RC rolloutOfBuffer(BranchTuple & head);
+    
+    RC linearSearchForChildOf(const void * key, const AttrType & keyType, PageNum & nextPage);
     // buffer
     void * getBufferPtr();
     
@@ -74,30 +90,47 @@ protected:
     NodeType _nodeType;
     PageNum _nextPage = NULL;
     AttrType _keyType;
+    PageNum _thisPage = NULL;
+    
+    RC _setFreeSpaceOfs(const short & freeSpaceOfs);
+    RC _setThisNodeType(const NodeType & nodeType);
+    RC _setThisPageNum(const PageNum & thisPage);
+    RC _setNextPageNum(const PageNum & nextPage);
+    RC _setKeyType(const AttrType & keyType);
+    
     
 };
+
+//class BplusTree {
+//public:
+//    IndexNode * root;
+//};
 
 class Tuple
 {
 public:
-    string strKey = NULL;
-    int intKey = NULL;
-    float fltKey = NULL;
-    
     // default constructor
-    Tuple();
-    ~Tuple();
+    Tuple() {};
+    ~Tuple() {};
+    
+    string strKey;
+    int intKey;
+    float fltKey;
     
     const void * getKeyPtr();
-    
-    TupleID getNextTupleID();
-    RC setNextTupleID(TupleID & tid);
-    
+    AttrType getKeyType();
     short getLength();
     
+    bool operator < (const Tuple & t);
+    bool operator > (const Tuple & t);
+    bool operator <= (const Tuple & t);
+    bool operator >= (const Tuple & t);
+    bool operator == (const Tuple & t);
+    bool operator != (const Tuple & t);
 protected:
-    short _nextTupleOfs = 0;
-    TupleID _nextTupleID;
+    int compare(const Tuple & t);
+
+    AttrType _keyType;
     const void * _keyPtr;
     short _length = 0;
     UtilsManager * _utils;
@@ -106,8 +139,10 @@ protected:
 class LeafTuple : public Tuple
 {
 public:
-    LeafTuple(); // so that I can declare like this: LeafTuple curt;
-    ~LeafTuple();
+    LeafTuple() : Tuple() {};
+    ~LeafTuple() {};
+    
+    LeafTuple * next = nullptr;
     
     LeafTuple(const void * key,
               const AttrType & keyType,
@@ -123,17 +158,24 @@ protected:
     short _ridOfs = 0;
     RID _rid; // -> PageNum & SlotNum
 private:
-    RC _setRid();
-    RID _getRid();
 };
 
 class BranchTuple : public Tuple
 {
 public:
+    BranchTuple() : Tuple() {};
+    ~BranchTuple() {};
+    
     BranchTuple(void * data,
                 const short & tupleOfs,
                 const AttrType & keyType);
-    ~BranchTuple();
+    
+    BranchTuple(const void * key,
+                const AttrType & keyType,
+                const PageNum & left,
+                const PageNum & right);
+    
+    BranchTuple * next = nullptr;
     
     PageNum getLeftChild();
     RC setLeftChild(PageNum left);
