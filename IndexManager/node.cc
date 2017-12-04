@@ -27,7 +27,7 @@ RC IndexNode::initialize()
     _freeSpaceOfs = *(short*)((char*)_buffer + IDX_FREE_SPACE_INFO_OFS);
     _thisPage = *(PageNum*)((char*)_buffer + IDX_THIS_NODE_PAGENUM);
     _nextPage = *(PageNum*)((char*)_buffer + IDX_NEXT_NODE_PAGENUM);
-    _keyType = *(AttrType*)((char*)_buffer + IDX_KEY_TYPE_INFO_OFS);
+    _keyType = (AttrType) *(int*)((char*)_buffer + IDX_KEY_TYPE_INFO_OFS);
     return 0;
 }
 
@@ -59,7 +59,7 @@ RC IndexNode::_setNextPageNum(const PageNum & nextPage)
 }
 RC IndexNode::_setKeyType(const AttrType & keyType)
 {
-    memcpy((char*)_buffer + IDX_KEY_TYPE_INFO_OFS, & keyType, sizeof(short));
+    memcpy((char*)_buffer + IDX_KEY_TYPE_INFO_OFS, & keyType, sizeof(int));
     _keyType = keyType;
     return 0;
 }
@@ -68,11 +68,11 @@ RC IndexNode::_setKeyType(const AttrType & keyType)
 RC IndexNode::setFreeSpaceOfs(const short & freeSpaceOfs) {
     return _setFreeSpaceOfs(freeSpaceOfs);
 }
-short IndexNode::getFreeSpaceOfs()
+short IndexNode::getFreeSpaceOfs() const
 {
     return _freeSpaceOfs;
 }
-short IndexNode::getFreeSpaceAmount()
+short IndexNode::getFreeSpaceAmount() const
 {
     return IDX_INFO_LEFT_BOUND_OFS - getFreeSpaceOfs();
 }
@@ -80,7 +80,7 @@ RC IndexNode::setThisNodeType(const NodeType & nodeType)
 {
     return _setThisNodeType(nodeType);
 }
-NodeType IndexNode::getThisNodeType()
+NodeType IndexNode::getThisNodeType() const
 {
     return _nodeType;
 }
@@ -88,15 +88,23 @@ RC IndexNode::setNextPageNum(const PageNum & nextPage)
 {
     return _setNextPageNum(nextPage);
 }
-PageNum IndexNode::getNextPageNum()
+PageNum IndexNode::getNextPageNum() const
 {
     return _nextPage;
+}
+RC IndexNode::setThisPageNum(const PageNum & pageNum)
+{
+    return _setThisPageNum(pageNum);
+}
+PageNum IndexNode::getThisPageNum() const
+{
+    return _thisPage;
 }
 RC IndexNode::setKeyType(const AttrType & keyType)
 {
     return _setKeyType(keyType);
 }
-AttrType IndexNode::getKeyType()
+AttrType IndexNode::getKeyType() const
 {
     return _keyType;
 }
@@ -124,11 +132,6 @@ RC IndexNode::rollinToBuffer(LeafTuple & head)
 }
 RC IndexNode::rolloutOfBuffer(LeafTuple & head)
 {
-    assert(_keyType == TypeInt || _keyType == TypeReal || _keyType == TypeVarChar &&
-           "IndexNode::rolloutOfBuffer() ERROR.");
-    assert(_freeSpaceOfs < IDX_INFO_LEFT_BOUND_OFS &&
-           "IndexNode::rolloutOfBuffer() ERROR.");
-    
     head = LeafTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
     LeafTuple * headptr = & head;
     LeafTuple next;
@@ -161,11 +164,6 @@ RC IndexNode::rollinToBuffer(BranchTuple & head)
 
 RC IndexNode::rolloutOfBuffer(BranchTuple & head)
 {
-    assert(_keyType == TypeInt || _keyType == TypeReal || _keyType == TypeVarChar &&
-           "IndexNode::rolloutOfBuffer() ERROR.");
-    assert(_freeSpaceOfs > 0 &&
-           "IndexNode::rolloutOfBuffer() ERROR.");
-    
     head = BranchTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
     BranchTuple * headptr = & head;
     BranchTuple next;
@@ -206,14 +204,7 @@ RC IndexNode::linearSearchForChildOf(const void * key,
     }
     return 0;
 }
-RC IndexNode::setThisPageNum(const PageNum & pageNum)
-{
-    return _setThisPageNum(pageNum);
-}
-PageNum IndexNode::getThisPageNum()
-{
-    return _thisPage;
-}
+
 /*
 * --------------------------------------------------------------------
 */
@@ -276,9 +267,11 @@ LeafTuple::LeafTuple(const void * key,
         case TypeReal:
             fltKey = *(float*)_keyPtr;
             _ridOfs = sizeof(float);
+            break;
         case TypeVarChar:
             strKey = _utils->getStringFrom(_keyPtr, 0);
             _ridOfs = sizeof(int) + strKey.length();
+            break;
         default:
             break;
     }
@@ -291,6 +284,7 @@ LeafTuple::LeafTuple(const void * buffer,
                      const AttrType & keyType)
 {
     _keyPtr = (char*)buffer + tupleOfs;
+    
     switch (keyType) {
         case TypeInt:
             intKey = *(int*)_keyPtr;
@@ -299,14 +293,16 @@ LeafTuple::LeafTuple(const void * buffer,
         case TypeReal:
             fltKey = *(float*)_keyPtr;
             _ridOfs = sizeof(float);
+            break;
         case TypeVarChar:
             strKey = _utils->getStringFrom(_keyPtr, 0);
             _ridOfs = sizeof(int) + strKey.length();
+            break;
         default:
             break;
     }
-    _rid.pageNum = *(PageNum*)((char*)_keyPtr + _ridOfs, sizeof(PageNum));
-    _rid.slotNum = *(SlotNum*)((char*)_keyPtr + _ridOfs + sizeof(PageNum), sizeof(SlotNum));
+    _rid.pageNum = (PageNum) *(unsigned*)((char*)_keyPtr + _ridOfs);
+    _rid.slotNum = (SlotNum) *(unsigned*)((char*)_keyPtr + _ridOfs + sizeof(PageNum));
     _length = _ridOfs + sizeof(PageNum) + sizeof(SlotNum);
 }
 

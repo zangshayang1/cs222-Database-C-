@@ -141,10 +141,8 @@ int main()
     RC result = testCase_2(indexFileName, attrAge);
     if (result == success) {
         cerr << "***** IX Test Case 2 finished. The result will be examined. *****" << endl;
-        return success;
     } else {
         cerr << "***** [FAIL] IX Test Case 2 failed. *****" << endl;
-        return fail;
     }
 }
 

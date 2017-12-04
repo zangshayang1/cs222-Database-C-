@@ -73,6 +73,16 @@ private:
     RC _insertIntoLeaf(IndexNode & leaf, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
     
     RC _insertIntoBplusTree(IndexNode & root, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
+    
+    void _printBtreeHelper(PageNum & pageNum,
+                         IXFileHandle & ixFileHandle,
+                         const AttrType & keyType) const;
+    void _printBranchTuple(BranchTuple & branchTuple,
+                           const AttrType & keyType) const;
+    void _printLeaf(IndexNode & node,
+                    const AttrType & keyType) const;
+    void _printLeafTuple(LeafTuple & leafTuple,
+                         const AttrType & keyType) const;
 };
 
 

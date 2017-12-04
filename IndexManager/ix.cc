@@ -353,8 +353,105 @@ RC IndexManager::scan(IXFileHandle &ixfileHandle,
 {
     return -1;
 }
+void IndexManager::_printLeafTuple(LeafTuple & leafTuple,
+                                   const AttrType & keyType)
+const {
+    switch (keyType) {
+        case TypeInt:
+            cout << leafTuple.intKey;
+            break;
+        case TypeReal:
+            cout << leafTuple.fltKey;
+            break;
+        case TypeVarChar:
+            cout << leafTuple.strKey;
+            break;
+        default:
+            break;
+    }
+    cout << " : ";
+    RID rid = leafTuple.getRid();
+    cout << "(" << rid.pageNum << "," << rid.slotNum << ")";
+    return ;
+}
+void IndexManager::_printLeaf(IndexNode & node,
+                              const AttrType & keyType)
+const {
+    LeafTuple head;
+    
+    node.rolloutOfBuffer(head);
+    LeafTuple * headptr = & head;
+    
+    cout << "{KEYS: [";
+    while (headptr->next != nullptr) {
+        _printLeafTuple(*headptr, keyType);
+        cout << ", ";
+        headptr = headptr->next;
+    }
+    _printLeafTuple(*headptr, keyType);
+    cout << "]}";
+    return ;
+    
+}
+void IndexManager::_printBranchTuple(BranchTuple & branchTuple,
+                                     const AttrType & keyType)
+const {
+    switch (keyType) {
+        case TypeInt:
+            cout << branchTuple.intKey;
+            break;
+        case TypeReal:
+            cout << branchTuple.fltKey;
+            break;
+        case TypeVarChar:
+            cout << branchTuple.strKey;
+            break;
+        default:
+            break;
+    }
+}
+void IndexManager::_printBtreeHelper(PageNum & pageNum,
+                                     IXFileHandle & ixFileHandle,
+                                     const AttrType & keyType)
+const {
+    void * buffer = malloc(PAGE_SIZE);
+    ixFileHandle.readPage(pageNum, buffer);
+    IndexNode node = IndexNode(buffer);
+    node.initialize();
+    
+    if (node.getThisNodeType() == Leaf) {
+        _printLeaf(node, keyType);
+        return ;
+    }
+    BranchTuple head;
+    node.rolloutOfBuffer(head);
+    BranchTuple * headptr = & head;
+    
+    cout << "{KEYS: [";
+    vector<PageNum> children;
+    while (headptr->next != nullptr) {
+        _printBranchTuple(*headptr, keyType);
+        cout << ",";
+        PageNum left = headptr->getLeftChild();
+        children.push_back(left);
+        headptr = headptr->next;
+    }
+    _printBranchTuple(*headptr, keyType);
+    children.push_back(headptr->getRightChild());
+    cout << "]," << endl;
+    cout << "CHILDRENS: [";
+    for(PageNum child : children) {
+        _printBtreeHelper(child, ixFileHandle, keyType);
+    }
+    cout << "]}" << endl;
+}
 
-void IndexManager::printBtree(IXFileHandle &ixfileHandle, const Attribute &attribute) const {
+void IndexManager::printBtree(IXFileHandle &ixFileHandle,
+                              const Attribute &attribute)
+const {
+    PageNum rootPage = root.getThisPageNum();
+    _printBtreeHelper(rootPage, ixFileHandle, attribute.type);
+    return ;
 }
 
 IX_ScanIterator::IX_ScanIterator()

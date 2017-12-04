@@ -7,8 +7,8 @@ const short IDX_NEXT_NODE_PAGENUM = 4092; //   [92 + 0000]
 const short IDX_THIS_NODE_PAGENUM = 4088; //     [88 + 0000]
 const short IDX_NODE_TYPE_INFO_OFS = 4084; //   [84 + 0000]
 const short IDX_FREE_SPACE_INFO_OFS = 4082; //  [82 + 00]
-const short IDX_KEY_TYPE_INFO_OFS = 4080; //    [80 + 00]
-const short IDX_INFO_LEFT_BOUND_OFS = 4080; //  [80]
+const short IDX_KEY_TYPE_INFO_OFS = 4078; //    [80 + 00000]
+const short IDX_INFO_LEFT_BOUND_OFS = 4078; //  [80]
 
 const PageNum NO_MORE_PAGE = pow(2, 32) - 1;
 const short NO_TUPLE_OFS = pow(2, 16) - 1;
@@ -55,20 +55,20 @@ public:
 
     // free ofs
     RC setFreeSpaceOfs(const short & freeSpaceOfs);
-    short getFreeSpaceOfs();
-    short getFreeSpaceAmount();
+    short getFreeSpaceOfs() const;
+    short getFreeSpaceAmount() const;
     // type
     RC setThisNodeType(const NodeType & nodeType);
-    NodeType getThisNodeType();
+    NodeType getThisNodeType() const;
     // _thisPage
     RC setThisPageNum(const PageNum & pageNum);
-    PageNum getThisPageNum();
+    PageNum getThisPageNum() const;
     // _nextPage
     RC setNextPageNum(const PageNum & pageNum);
-    PageNum getNextPageNum();
+    PageNum getNextPageNum() const;
     // key type
     RC setKeyType(const AttrType & keyType);
-    AttrType getKeyType();
+    AttrType getKeyType() const;
     // get first tuple
     LeafTuple getFirstLeafTuple();
     BranchTuple getFirstBranchTuple();
@@ -100,11 +100,6 @@ protected:
     
     
 };
-
-//class BplusTree {
-//public:
-//    IndexNode * root;
-//};
 
 class Tuple
 {
