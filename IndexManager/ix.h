@@ -18,6 +18,7 @@ public:
     static IndexManager* instance();
     IndexNode root;
     IndexNode * rootptr = nullptr;
+    
 
     // Create an index file.
     RC createFile(const string &fileName);
@@ -83,26 +84,23 @@ private:
                     const AttrType & keyType) const;
     void _printLeafTuple(LeafTuple & leafTuple,
                          const AttrType & keyType) const;
+    
+    RC _deleteEntryHelper(IXFileHandle & ixFileHandle,
+                          const PageNum & pageNum,
+                          const AttrType & keyType,
+                          const void * key,
+                          const RID & rid);
+    
+    RC _deleteFromLeaf(IndexNode & node,
+                       const AttrType & keyType,
+                       const void * key,
+                       const RID & rid);
+    
+    RC _deleteFromLeafTupleList(LeafTuple & head,
+                                const AttrType & keyType,
+                                const void * key,
+                                const RID & rid);
 };
-
-
-class IX_ScanIterator {
-    public:
-
-		// Constructor
-        IX_ScanIterator();
-
-        // Destructor
-        ~IX_ScanIterator();
-
-        // Get next matching entry
-        RC getNextEntry(RID &rid, void *key);
-
-        // Terminate index scan
-        RC close();
-};
-
-
 
 class IXFileHandle : public FileHandle {
     public:
@@ -129,6 +127,50 @@ class IXFileHandle : public FileHandle {
 
     // Destructor
     ~IXFileHandle();
+};
+
+
+
+class IX_ScanIterator {
+public:
+    // Constructor
+    IX_ScanIterator() {};
+    
+    // Destructor
+    ~IX_ScanIterator() {};
+    
+    // Get next matching entry
+    RC getNextEntry(RID &rid, void *key);
+    
+    // Terminate index scan
+    RC close();
+    
+    RC initialize(const PageNum & pageNum,
+                  IXFileHandle & ixFileHandle,
+                  const AttrType & keyType,
+                  const void * lowKey,
+                  const void * highKey,
+                  bool lowKeyInclusive,
+                  bool highKeyInclusive);
+protected:
+    IXFileHandle _ixFileHandle;
+    AttrType _keyType;
+    const void * _lowKey;
+    const void * _highKey;
+    bool _lowKeyInclusive;
+    bool _highKeyInclusive;
+    LeafTuple _lowerBoundTup;
+    LeafTuple _higherBoundTup;
+    
+    LeafTuple _leafTupCurs;
+    PageNum _pageCurs;
+    IndexNode _nodeCurs;
+    bool _ended = false;
+    
+    RC _putScanIteratorCursors();
+    
+    LeafTuple _lowestBoundTup(AttrType & keyType);
+    LeafTuple _highestBoundTup(AttrType & keyType);
 };
 
 #endif

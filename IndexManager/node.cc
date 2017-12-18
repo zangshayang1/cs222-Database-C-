@@ -118,13 +118,19 @@ RC IndexNode::rollinToBuffer(LeafTuple & head)
 {
     LeafTuple * headptr = & head;
     short increment = FIRST_TUPLE_OFS;
+    
+    // clear current _buffer of the page
+    memset(_buffer, EMPTY_BYTE, IDX_INFO_LEFT_BOUND_OFS);
     while (headptr != nullptr) {
         assert(increment <= IDX_INFO_LEFT_BOUND_OFS &&
                "IndexNode::rollinToBuffer() ERROR.");
-        memcpy((char*)_buffer + increment,
-               headptr->getKeyPtr(),
-               headptr->getLength());
-        increment += headptr->getLength();
+        
+        if (headptr->getKeyPtr() != nullptr) {
+            memcpy((char*)_buffer + increment,
+                   headptr->getKeyPtr(),
+                   headptr->getLength());
+            increment += headptr->getLength();
+        }
         headptr = headptr->next;
     }
     _setFreeSpaceOfs(increment);
@@ -177,22 +183,21 @@ RC IndexNode::rolloutOfBuffer(BranchTuple & head)
     return 0;
 }
 
-RC IndexNode::linearSearchForChildOf(const void * key,
-                                          const AttrType & keyType,
-                                          PageNum & nextPage)
+RC IndexNode::linearSearchBranchTupleForChild(const void * key,
+                                     const AttrType & keyType,
+                                     PageNum & nextPage)
 {
     assert(_nodeType == Branch &&
            "IndexNode::_linearSearchForLeftChildOf(): ERROR.");
     
-    // TODO this should be LeafTuple RIGHT??? can I compare BranchTuple and LeafTuple?
-    RID rid;
-    LeafTuple t = LeafTuple(key, keyType, rid);
+    BranchTuple t = BranchTuple(key, keyType, 0, 0);
     
     BranchTuple head;
     rolloutOfBuffer(head);
     BranchTuple * prevptr = nullptr;
     BranchTuple * headptr = & head;
-    while (headptr != nullptr && *headptr <= t) {
+    // find the first BranchTuple that is larger than or equal to t
+    while (headptr != nullptr && *headptr < t) {
         prevptr = headptr;
         headptr = headptr->next;
     }
@@ -205,9 +210,50 @@ RC IndexNode::linearSearchForChildOf(const void * key,
     return 0;
 }
 
+RC IndexNode::linearSearchLeafTupleForKey(const bool & lowKeyInclusive,
+                                          LeafTuple & lowerBoundTup,
+                                          const AttrType &keyType,
+                                          LeafTuple & head)
+{
+    // search for the 1st leafTuple with a key that is >= than the given key
+    
+    rolloutOfBuffer(head);
+    while (head.next != nullptr) {
+        if (head < lowerBoundTup) {
+            head = * head.next;
+        }
+        else if (head == lowerBoundTup && !lowKeyInclusive) {
+            head = * head.next;
+        }
+        else {
+            // found
+            break;
+        }
+    }
+    
+    // within this node, there must be a leafTuple that is >= than the given key so if it comes to the end where head->next == nullptr, then the current head is supposed to be what we are looking for
+    
+    assert(head >= lowerBoundTup &&
+           "IndexNode::linearSearchLeafTupleForKey() : ERROR.");
+    
+    // could it be possible that it is not found in this Page?
+    return 0;
+}
+
+RC IndexNode::clearAll()
+{
+    memset(getBufferPtr(), EMPTY_BYTE, IDX_INFO_LEFT_BOUND_OFS);
+    _setFreeSpaceOfs(0);
+    return 0;
+}
 /*
 * --------------------------------------------------------------------
 */
+RC Tuple::setKeyPtr(const void * keyPtr)
+{
+    _keyPtr = keyPtr;
+    return 0;
+}
 
 AttrType Tuple::getKeyType()
 {
@@ -225,20 +271,20 @@ int Tuple::compare(const Tuple & t)
 {
     switch (_keyType) {
         case TypeInt:
-            if (intKey < t.intKey) {return -1;}
             if (intKey > t.intKey) {return 1;}
+            if (intKey < t.intKey) {return -1;}
             if (intKey == t.intKey) {return 0;}
         case TypeReal:
-            if (fltKey < t.fltKey) {return -1;}
             if (fltKey > t.fltKey) {return 1;}
+            if (fltKey < t.fltKey) {return -1;}
             if (fltKey == t.fltKey) {return 0;}
         case TypeVarChar:
-            if (strKey < t.strKey) {return -1;}
             if (strKey > t.strKey) {return 1;}
+            if (strKey < t.strKey) {return -1;}
             if (strKey == t.strKey) {return 0;}
         default:
             cout << "Tuple:compare() : ERROR." << endl;
-            return 0;
+            return -1;
     }
 }
 bool Tuple::operator < (const Tuple & t) {return compare(t) < 0;}
@@ -259,7 +305,8 @@ LeafTuple::LeafTuple(const void * key,
 {
     _keyPtr = key;
     _rid = rid;
-    switch (keyType) {
+    _keyType = keyType;
+    switch (_keyType) {
         case TypeInt:
             intKey = *(int*)_keyPtr;
             _ridOfs = sizeof(int);
@@ -284,7 +331,7 @@ LeafTuple::LeafTuple(const void * buffer,
                      const AttrType & keyType)
 {
     _keyPtr = (char*)buffer + tupleOfs;
-    
+    _keyType = keyType;
     switch (keyType) {
         case TypeInt:
             intKey = *(int*)_keyPtr;
@@ -311,6 +358,33 @@ RID LeafTuple::getRid()
     return _rid;
 }
 
+bool LeafTuple::exactMatch(LeafTuple & leafTuple)
+{
+    bool keyMatch;
+    switch (_keyType) {
+        case TypeInt:
+            keyMatch = (intKey == leafTuple.intKey);
+            break;
+        case TypeReal:
+            keyMatch = (fltKey == leafTuple.fltKey);
+            break;
+        case TypeVarChar:
+            keyMatch = (strKey == leafTuple.strKey);
+            break;
+        default:
+            break;
+    }
+    if (!keyMatch) {
+        return false;
+    }
+    if (_rid.pageNum == leafTuple.getRid().pageNum &&
+        _rid.slotNum == leafTuple.getRid().slotNum) {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
 /*
  * --------------------------------------------------------------------
  */

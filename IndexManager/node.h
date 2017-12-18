@@ -30,6 +30,95 @@ class BranchTuple;
 /*
  * class definition
  */
+
+class Tuple
+{
+public:
+    // default constructor
+    Tuple() {};
+    ~Tuple() {};
+    
+    string strKey;
+    int intKey;
+    float fltKey;
+    
+    RC setKeyPtr(const void * keyPtr);
+    const void * getKeyPtr();
+    AttrType getKeyType();
+    short getLength();
+    
+    bool operator < (const Tuple & t);
+    bool operator > (const Tuple & t);
+    bool operator <= (const Tuple & t);
+    bool operator >= (const Tuple & t);
+    bool operator == (const Tuple & t);
+    bool operator != (const Tuple & t);
+    
+protected:
+    int compare(const Tuple & t);
+    
+    AttrType _keyType;
+    const void * _keyPtr;
+    short _length = 0;
+    UtilsManager * _utils;
+};
+
+class LeafTuple : public Tuple
+{
+public:
+    LeafTuple() : Tuple() {};
+    ~LeafTuple() {};
+    
+    LeafTuple * next = nullptr;
+    
+    LeafTuple(const void * key,
+              const AttrType & keyType,
+              const RID & rid);
+    
+    LeafTuple(const void * buffer,
+              const short & tupleOfs,
+              const AttrType & keyType);
+    
+    bool exactMatch(LeafTuple & leafTuple);
+    
+    RID getRid();
+    
+protected:
+    short _ridOfs = 0;
+    RID _rid; // -> PageNum & SlotNum
+private:
+};
+
+class BranchTuple : public Tuple
+{
+public:
+    BranchTuple() : Tuple() {};
+    ~BranchTuple() {};
+    
+    BranchTuple(void * data,
+                const short & tupleOfs,
+                const AttrType & keyType);
+    
+    BranchTuple(const void * key,
+                const AttrType & keyType,
+                const PageNum & left,
+                const PageNum & right);
+    
+    BranchTuple * next = nullptr;
+    
+    PageNum getLeftChild();
+    RC setLeftChild(PageNum left);
+    
+    PageNum getRightChild();
+    RC setRightChild(PageNum right);
+protected:
+    short _leftOfs = 0;
+    short _rightOfs = 0;
+    PageNum _leftChild;
+    PageNum _rightChild;
+};
+
+
 class Node
 {
 public:
@@ -75,13 +164,20 @@ public:
     
     RC initializeEmptyNode();
     RC initialize();
+    RC clearAll();
     
     RC rollinToBuffer(LeafTuple & head);
     RC rolloutOfBuffer(LeafTuple & head);
     RC rollinToBuffer(BranchTuple & head);
     RC rolloutOfBuffer(BranchTuple & head);
     
-    RC linearSearchForChildOf(const void * key, const AttrType & keyType, PageNum & nextPage);
+    RC linearSearchBranchTupleForChild(const void * key, const AttrType & keyType, PageNum & nextPage);
+    
+    RC linearSearchLeafTupleForKey(const bool & lowKeyInclusive,
+                                   LeafTuple & lowerBoundTup,
+                                   const AttrType & keyType,
+                                   LeafTuple & head);
+    
     // buffer
     void * getBufferPtr();
     
@@ -98,91 +194,8 @@ protected:
     RC _setNextPageNum(const PageNum & nextPage);
     RC _setKeyType(const AttrType & keyType);
     
-    
 };
 
-class Tuple
-{
-public:
-    // default constructor
-    Tuple() {};
-    ~Tuple() {};
-    
-    string strKey;
-    int intKey;
-    float fltKey;
-    
-    const void * getKeyPtr();
-    AttrType getKeyType();
-    short getLength();
-    
-    bool operator < (const Tuple & t);
-    bool operator > (const Tuple & t);
-    bool operator <= (const Tuple & t);
-    bool operator >= (const Tuple & t);
-    bool operator == (const Tuple & t);
-    bool operator != (const Tuple & t);
-protected:
-    int compare(const Tuple & t);
-
-    AttrType _keyType;
-    const void * _keyPtr;
-    short _length = 0;
-    UtilsManager * _utils;
-};
-
-class LeafTuple : public Tuple
-{
-public:
-    LeafTuple() : Tuple() {};
-    ~LeafTuple() {};
-    
-    LeafTuple * next = nullptr;
-    
-    LeafTuple(const void * key,
-              const AttrType & keyType,
-              const RID & rid);
-    
-    LeafTuple(const void * buffer,
-              const short & tupleOfs,
-              const AttrType & keyType);
-    
-    RID getRid();
-    
-protected:
-    short _ridOfs = 0;
-    RID _rid; // -> PageNum & SlotNum
-private:
-};
-
-class BranchTuple : public Tuple
-{
-public:
-    BranchTuple() : Tuple() {};
-    ~BranchTuple() {};
-    
-    BranchTuple(void * data,
-                const short & tupleOfs,
-                const AttrType & keyType);
-    
-    BranchTuple(const void * key,
-                const AttrType & keyType,
-                const PageNum & left,
-                const PageNum & right);
-    
-    BranchTuple * next = nullptr;
-    
-    PageNum getLeftChild();
-    RC setLeftChild(PageNum left);
-    
-    PageNum getRightChild();
-    RC setRightChild(PageNum right);
-protected:
-    short _leftOfs = 0;
-    short _rightOfs = 0;
-    PageNum _leftChild;
-    PageNum _rightChild;
-};
 
 
 #endif

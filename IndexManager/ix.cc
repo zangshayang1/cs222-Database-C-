@@ -252,7 +252,7 @@ RC IndexManager::_insertIntoBplusTree(IndexNode & root,
     else {
         // root is a branchNode
         PageNum nextPage;
-        root.linearSearchForChildOf(key, keyType, nextPage);
+        root.linearSearchBranchTupleForChild(key, keyType, nextPage);
         
         void * buffer = malloc(PAGE_SIZE);
         ixFileHandle.readPage(nextPage, buffer);
@@ -266,6 +266,7 @@ RC IndexManager::_insertIntoBplusTree(IndexNode & root,
                              key,
                              rid);
         if (newChildPtr != nullptr) {
+            // bubUpBtup has the same key as newChild (rightChild)
             BranchTuple bubUpBtup = BranchTuple(newChildPtr->getBufferPtr(),
                                                 newChildPtr->getKeyType(),
                                                 node.getThisPageNum(),
@@ -319,40 +320,137 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
                          attribute.type,
                          key,
                          rid);
+    // burn updates to disk
+    ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
+    
     // root hasn't been modified since the last change
     if (newChildPtr != nullptr) {
         // a new root is needed, expand in height
         IndexNode newRoot;
         _initializeBplusRoot(Branch, attribute.type, newRoot);
         BranchTuple bubUpBtup = BranchTuple(newChildPtr->getBufferPtr(),
-                                                      newChildPtr->getKeyType(),
-                                                      root.getThisPageNum(),
-                                                      newChildPtr->getThisPageNum());
+                                            newChildPtr->getKeyType(),
+                                            root.getThisPageNum(),
+                                            newChildPtr->getThisPageNum());
         
         newRoot.rollinToBuffer(bubUpBtup);
+        newRoot.setThisPageNum(ixFileHandle.getNumberOfPages());
+        // burn newRoot into new page
         ixFileHandle.appendPage(newRoot.getBufferPtr());
-        newRoot.setThisPageNum(ixFileHandle.getNumberOfPages() - 1);
         root = newRoot;
+        rootptr = & root;
     }
     return 0;
 }
 
-RC IndexManager::deleteEntry(IXFileHandle &ixfileHandle, const Attribute &attribute, const void *key, const RID &rid)
+/*
+ * --------------------------------------------------------------------
+ */
+
+RC IndexManager::_deleteFromLeafTupleList(LeafTuple & head,
+                                          const AttrType & keyType,
+                                          const void * key,
+                                          const RID & rid)
 {
-    return -1;
+    LeafTuple curtKey = LeafTuple(key, keyType, rid);
+    LeafTuple * prevptr = nullptr;
+    LeafTuple * headptr = & head;
+    while (headptr->next != nullptr) {
+        if (curtKey.exactMatch(* headptr)) {
+            break;
+        }
+        prevptr = headptr;
+        headptr = headptr->next;
+    }
+
+    if (prevptr == nullptr && headptr->next == nullptr) {
+        // only 1 leafTuple in this list
+        head.setKeyPtr(nullptr);
+    }
+    else if (prevptr == nullptr) {
+        // the 1st leafTuple is what we want to delete
+        head = * head.next;
+    }
+    else if (head.next == nullptr) {
+        // run through the list without finding what we want to delete
+        return -1;
+    }
+    else {
+        // found it
+        prevptr->next = headptr->next;
+    }
+    return 0;
+}
+
+RC IndexManager::_deleteFromLeaf(IndexNode & node,
+                                 const AttrType & keyType,
+                                 const void * key,
+                                 const RID & rid)
+{
+    if (node.getFreeSpaceOfs() == 0) {
+        // page is empty
+        return -1;
+    }
+    LeafTuple head;
+    node.rolloutOfBuffer(head);
+    RC rc = _deleteFromLeafTupleList(head, keyType, key, rid);
+    if (rc == -1) {
+        // didn't find what we are looking for
+        // no change needed
+        return -1;
+    }
+    // roll tuplelist back to the page
+    node.rollinToBuffer(head);
+    return 0;
+    
+}
+
+RC IndexManager::_deleteEntryHelper(IXFileHandle & ixFileHandle,
+                                    const PageNum & pageNum,
+                                    const AttrType & keyType,
+                                    const void * key,
+                                    const RID & rid)
+{
+    void * buffer = malloc(PAGE_SIZE);
+    ixFileHandle.readPage(pageNum, buffer);
+    IndexNode node = IndexNode(buffer);
+    node.initialize();
+    
+    if (node.getThisNodeType() == Leaf) {
+        RC rc = _deleteFromLeaf(node, keyType, key, rid);
+        if (rc == -1) {
+            // didn't even find, delete should fail
+            return -1;
+        }
+        // burn deletion onto disk
+        ixFileHandle.writePage(node.getThisPageNum(), node.getBufferPtr());
+        return 0;
+    }
+    PageNum childPage;
+    node.linearSearchBranchTupleForChild(key, keyType, childPage);
+    _deleteEntryHelper(ixFileHandle, childPage, keyType, key, rid);
+    return 0;
+}
+RC IndexManager::deleteEntry(IXFileHandle &ixFileHandle,
+                             const Attribute &attribute,
+                             const void *key,
+                             const RID &rid)
+{
+    PageNum rootPage = root.getThisPageNum();
+    
+    return _deleteEntryHelper(ixFileHandle,
+                              rootPage,
+                              attribute.type,
+                              key,
+                              rid);
 }
 
 
-RC IndexManager::scan(IXFileHandle &ixfileHandle,
-        const Attribute &attribute,
-        const void      *lowKey,
-        const void      *highKey,
-        bool			lowKeyInclusive,
-        bool        	highKeyInclusive,
-        IX_ScanIterator &ix_ScanIterator)
-{
-    return -1;
-}
+
+/*
+ * --------------------------------------------------------------------
+ */
+
 void IndexManager::_printLeafTuple(LeafTuple & leafTuple,
                                    const AttrType & keyType)
 const {
@@ -454,24 +552,207 @@ const {
     return ;
 }
 
-IX_ScanIterator::IX_ScanIterator()
+/*
+ * --------------------------------------------------------------------
+ */
+
+RC IndexManager::scan(IXFileHandle &ixFileHandle,
+                      const Attribute &attribute,
+                      const void * lowKey,
+                      const void * highKey,
+                      bool lowKeyInclusive,
+                      bool highKeyInclusive,
+                      IX_ScanIterator &ix_ScanIterator)
 {
+    ix_ScanIterator.initialize(root.getThisPageNum(),
+                               ixFileHandle,
+                               attribute.type,
+                               lowKey,
+                               highKey,
+                               lowKeyInclusive,
+                               highKeyInclusive);
+    return 0;
 }
 
-IX_ScanIterator::~IX_ScanIterator()
+/*
+ * --------------------------------------------------------------------
+ */
+
+RC IX_ScanIterator::_putScanIteratorCursors()
 {
+    if (_nodeCurs.getThisNodeType() == Leaf) {
+        LeafTuple head;
+        _nodeCurs.linearSearchLeafTupleForKey(_lowKeyInclusive,
+                                              _lowerBoundTup,
+                                              _keyType,
+                                              head);
+        _leafTupCurs = head;
+        _pageCurs = _nodeCurs.getThisPageNum();
+        return 0;
+    }
+    // _nodeCurs.getThisNodeType() == Branch
+    PageNum childpage;
+    _nodeCurs.linearSearchBranchTupleForChild(_lowKey, _keyType, childpage);
+    void * buffer = malloc(PAGE_SIZE);
+    _ixFileHandle.readPage(childpage, buffer);
+    _nodeCurs = IndexNode(buffer);
+    _nodeCurs.initialize();
+    _putScanIteratorCursors();
+    return 0;
+}
+
+LeafTuple IX_ScanIterator::_lowestBoundTup(AttrType & keyType)
+{
+    void * key = nullptr;
+    int minInt = INT_MIN;
+    string minStr = "";
+    switch (keyType) {
+        case TypeInt:
+            key = & minInt;
+            break;
+        case TypeReal:
+            key = & minInt;
+        case TypeVarChar:
+            key = & minStr;
+        default:
+            cout << "IX_ScanIterator::_lowestBoundTup(): ERR." << endl;
+            break;
+    }
+    RID rid;
+    rid.pageNum = -1;
+    rid.slotNum = -1;
+    return LeafTuple(key, keyType, rid);
+}
+
+LeafTuple IX_ScanIterator::_highestBoundTup(AttrType & keyType)
+{
+    void * key = nullptr;
+    int maxInt = INT_MAX;
+    
+    char maxCharArr[PAGE_SIZE];
+    for (int i = 0; i < PAGE_SIZE - 1; i++) {
+        maxCharArr[i] = '~'; // ascii value 126
+    }
+    maxCharArr[PAGE_SIZE - 1] = '\0';
+    string maxStr = string(maxCharArr);
+    
+    switch (keyType) {
+        case TypeInt:
+            key = & maxInt;
+            break;
+        case TypeReal:
+            key = & maxInt;
+        case TypeVarChar:
+            key = & maxStr;
+        default:
+            cout << "IX_ScanIterator::_highestBoundTup(): ERR." << endl;
+            break;
+    }
+    RID rid;
+    rid.pageNum = -1;
+    rid.slotNum = -1;
+    return LeafTuple(key, keyType, rid);
+}
+
+RC IX_ScanIterator::initialize(const PageNum & rootPageNum,
+                               IXFileHandle & ixFileHandle,
+                               const AttrType & keyType,
+                               const void * lowKey,
+                               const void * highKey,
+                               bool lowKeyInclusive,
+                               bool highKeyInclusive)
+{
+    void * buffer = malloc(PAGE_SIZE);
+    ixFileHandle.readPage(rootPageNum, buffer);
+    IndexNode root = IndexNode(buffer);
+    root.initialize();
+    _nodeCurs = root;
+    _pageCurs = _nodeCurs.getThisPageNum();
+    
+    _ixFileHandle = ixFileHandle;
+    _keyType = keyType;
+    _lowKey = lowKey;
+    _highKey = highKey;
+    _lowKeyInclusive = lowKeyInclusive;
+    _highKeyInclusive = highKeyInclusive;
+    
+    // deal with cases where _lowKey is NULL, _highKey is NULL
+    if (_lowKey == NULL) {
+        _lowerBoundTup = _lowestBoundTup(_keyType);
+    }
+    else {
+        RID rid1;
+        _lowerBoundTup = LeafTuple(_lowKey, keyType, rid1);
+    }
+    if (_highKey == NULL) {
+        _higherBoundTup = _highestBoundTup(_keyType);
+    }
+    else {
+        RID rid2;
+        _higherBoundTup = LeafTuple(_highKey, keyType, rid2);
+    }
+    return _putScanIteratorCursors();
 }
 
 RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
 {
-    return -1;
+    if (_ended) {
+        return -1;
+    }
+    
+    if (_leafTupCurs > _higherBoundTup) {
+        // no more eligible leafTuple
+        return -1;
+    }
+    if (_leafTupCurs == _higherBoundTup && !_highKeyInclusive) {
+        // exclusive
+        return -1;
+    }
+    
+    rid = _leafTupCurs.getRid();
+    switch (_keyType) {
+        case TypeInt:
+            key = & _leafTupCurs.intKey;
+            break;
+        case TypeReal:
+            key = & _leafTupCurs.fltKey;
+            break;
+        case TypeVarChar:
+            key = & _leafTupCurs.strKey;
+            break;
+        default:
+            break;
+    }
+    
+    if (_leafTupCurs.next != nullptr) {
+        _leafTupCurs = * _leafTupCurs.next;
+    }
+    // done traversing the current page
+    else if (_nodeCurs.getNextPageNum() != NO_MORE_PAGE) {
+        _pageCurs = _nodeCurs.getNextPageNum();
+        void * buffer = malloc(PAGE_SIZE);
+        _ixFileHandle.readPage(_pageCurs, buffer);
+        _nodeCurs = IndexNode(buffer);
+        _nodeCurs.initialize();
+        _nodeCurs.rolloutOfBuffer(_leafTupCurs);
+    }
+    // done traversing the whole tree
+    else {
+        // mark that the _leafTupCurs is the last one
+        _ended = true;
+    }
+    return 0;
 }
 
 RC IX_ScanIterator::close()
 {
-    return -1;
+    return 0;
 }
 
+
+/*
+ * --------------------------------------------------------------------
+ */
 
 IXFileHandle::IXFileHandle()
 {
