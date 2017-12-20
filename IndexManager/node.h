@@ -166,8 +166,8 @@ public:
     RC initialize();
     RC clearAll();
     
-    RC rollinToBuffer(LeafTuple & head);
-    RC rolloutOfBuffer(LeafTuple & head);
+    RC rollinToBuffer(LeafTuple * headptr);
+    RC rolloutOfBuffer(LeafTuple* &headptr);
     RC rollinToBuffer(BranchTuple & head);
     RC rolloutOfBuffer(BranchTuple & head);
     
@@ -176,7 +176,7 @@ public:
     RC linearSearchLeafTupleForKey(const bool & lowKeyInclusive,
                                    LeafTuple & lowerBoundTup,
                                    const AttrType & keyType,
-                                   LeafTuple & head);
+                                   LeafTuple* &headptr);
     
     // buffer
     void * getBufferPtr();
@@ -193,6 +193,7 @@ protected:
     RC _setThisPageNum(const PageNum & thisPage);
     RC _setNextPageNum(const PageNum & nextPage);
     RC _setKeyType(const AttrType & keyType);
+    RC _rollinToBufferLeafHelper(LeafTuple * t, void * startOfs);
     
 };
 

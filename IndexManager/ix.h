@@ -59,21 +59,29 @@ private:
     PagedFileManager * _pfm;
     UtilsManager * _utils;
     
+    bool _validIxFileHandle(const IXFileHandle & ixFileHandle) const;
+    
     RC _createNewNode(const NodeType & nodeType, const AttrType & keyType, IndexNode & newNode);
     
     RC _initializeBplusRoot(const NodeType & nodeType, const AttrType & keyType, IndexNode & root);
     
-    RC _insertIntoLeafTupleList(IndexNode & leaf, LeafTuple & inserted, LeafTuple & head);
+    RC _insertIntoLeafTupleList(IndexNode & leaf,
+                                LeafTuple & inserted,
+                                LeafTuple* &head);
     
     RC _insertIntoBranchTupleList(IndexNode & branch, BranchTuple & inserted, BranchTuple & head);
     
-    RC _splitLeafTupleList(LeafTuple & first, LeafTuple & second);
+    RC _splitLeafTupleList(LeafTuple * first, LeafTuple* &second);
     
     RC _splitBranchTupleList(BranchTuple & first, BranchTuple & second);
     
     RC _insertIntoLeaf(IndexNode & leaf, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
     
-    RC _insertIntoBplusTree(IndexNode & root, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
+    RC _insertIntoBplusTree(IndexNode & root,
+                            IndexNode* &newChildPtr,
+                            IXFileHandle & ixFileHandle,
+                            const AttrType & keyType,
+                            const void * key, const RID & rid);
     
     void _printBtreeHelper(PageNum & pageNum,
                          IXFileHandle & ixFileHandle,
@@ -96,10 +104,13 @@ private:
                        const void * key,
                        const RID & rid);
     
-    RC _deleteFromLeafTupleList(LeafTuple & head,
+    RC _deleteFromLeafTupleList(LeafTuple * headptr,
                                 const AttrType & keyType,
                                 const void * key,
                                 const RID & rid);
+    
+    void _printLeafTupleList(LeafTuple* first);
+    
 };
 
 class IXFileHandle : public FileHandle {
@@ -162,7 +173,7 @@ protected:
     LeafTuple _lowerBoundTup;
     LeafTuple _higherBoundTup;
     
-    LeafTuple _leafTupCurs;
+    LeafTuple* _leafTupCurs = nullptr;
     PageNum _pageCurs;
     IndexNode _nodeCurs;
     bool _ended = false;

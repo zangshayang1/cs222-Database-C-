@@ -114,9 +114,36 @@ void * IndexNode::getBufferPtr()
     return _buffer;
 }
 
-RC IndexNode::rollinToBuffer(LeafTuple & head)
+RC IndexNode::_rollinToBufferLeafHelper(LeafTuple * t,
+                                        void * startOfs)
 {
-    LeafTuple * headptr = & head;
+    assert(t->getKeyType() == _keyType
+           && "IndexNode:_rollinToBufferLeafHelper(): ERR.");
+    
+    short ofs;
+    switch (t->getKeyType()) {
+        case TypeInt:
+            memcpy(startOfs, & t->intKey, sizeof(int));
+            ofs = sizeof(int);
+            break;
+        case TypeReal:
+            memcpy(startOfs, & t->fltKey, sizeof(float));
+            ofs = sizeof(float);
+        default:
+            // c_str()
+            memcpy(startOfs, t->strKey.c_str(), (size_t)t->strKey.length());
+            ofs = t->strKey.length();
+            break;
+    }
+    PageNum pageNum = t->getRid().pageNum;
+    SlotNum slotNum = t->getRid().slotNum;
+    memcpy((char*)startOfs + ofs, & pageNum, sizeof(PageNum));
+    memcpy((char*)startOfs + ofs + sizeof(PageNum), & slotNum, sizeof(slotNum));
+    return 0;
+}
+
+RC IndexNode::rollinToBuffer(LeafTuple * headptr)
+{
     short increment = FIRST_TUPLE_OFS;
     
     // clear current _buffer of the page
@@ -126,9 +153,7 @@ RC IndexNode::rollinToBuffer(LeafTuple & head)
                "IndexNode::rollinToBuffer() ERROR.");
         
         if (headptr->getKeyPtr() != nullptr) {
-            memcpy((char*)_buffer + increment,
-                   headptr->getKeyPtr(),
-                   headptr->getLength());
+            _rollinToBufferLeafHelper(headptr, (char*)_buffer + increment);
             increment += headptr->getLength();
         }
         headptr = headptr->next;
@@ -136,17 +161,17 @@ RC IndexNode::rollinToBuffer(LeafTuple & head)
     _setFreeSpaceOfs(increment);
     return 0;
 }
-RC IndexNode::rolloutOfBuffer(LeafTuple & head)
+RC IndexNode::rolloutOfBuffer(LeafTuple* & headptr)
 {
-    head = LeafTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
-    LeafTuple * headptr = & head;
-    LeafTuple next;
-    short increment = headptr->getLength();
+    headptr = new LeafTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
+    LeafTuple * curs = headptr;
+    LeafTuple * nextptr;
+    short increment = curs->getLength();
     while (increment < _freeSpaceOfs) {
-        next = LeafTuple(_buffer, increment, _keyType);
-        headptr->next = & next;
-        headptr = headptr->next;
-        increment += headptr->getLength();
+        nextptr = new LeafTuple(_buffer, increment, _keyType);
+        curs->next = nextptr;
+        curs = curs->next;
+        increment += curs->getLength();
     }
     return 0;
 }
@@ -213,17 +238,17 @@ RC IndexNode::linearSearchBranchTupleForChild(const void * key,
 RC IndexNode::linearSearchLeafTupleForKey(const bool & lowKeyInclusive,
                                           LeafTuple & lowerBoundTup,
                                           const AttrType &keyType,
-                                          LeafTuple & head)
+                                          LeafTuple* &headptr)
 {
     // search for the 1st leafTuple with a key that is >= than the given key
     
-    rolloutOfBuffer(head);
-    while (head.next != nullptr) {
-        if (head < lowerBoundTup) {
-            head = * head.next;
+    rolloutOfBuffer(headptr);
+    while (headptr->next != nullptr) {
+        if (* headptr < lowerBoundTup) {
+            headptr = headptr->next;
         }
-        else if (head == lowerBoundTup && !lowKeyInclusive) {
-            head = * head.next;
+        else if (* headptr == lowerBoundTup && !lowKeyInclusive) {
+            headptr = headptr->next;
         }
         else {
             // found
@@ -233,7 +258,7 @@ RC IndexNode::linearSearchLeafTupleForKey(const bool & lowKeyInclusive,
     
     // within this node, there must be a leafTuple that is >= than the given key so if it comes to the end where head->next == nullptr, then the current head is supposed to be what we are looking for
     
-    assert(head >= lowerBoundTup &&
+    assert(* headptr >= lowerBoundTup &&
            "IndexNode::linearSearchLeafTupleForKey() : ERROR.");
     
     // could it be possible that it is not found in this Page?
