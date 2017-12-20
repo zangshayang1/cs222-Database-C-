@@ -330,7 +330,7 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
         
         cout << "insert entry # " << key << endl;
         
-        if (key == 339) {
+        if (key == 510) {
             cout << "check this insertion!" << endl;
         }
         
@@ -352,10 +352,6 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
     while(ix_ScanIterator.getNextEntry(rid, &key) == success)
     {
         count++;
-        
-        if (rid.pageNum == 169) {
-            cout << "check how _leafTupleCurs moves" << endl;
-        }
         
         cout << rid.pageNum << '\t' << rid.slotNum << endl;
         

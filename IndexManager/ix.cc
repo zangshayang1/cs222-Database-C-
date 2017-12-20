@@ -86,16 +86,16 @@ bool IndexManager::_validIxFileHandle(const IXFileHandle & ixFileHandle) const
 
 RC IndexManager::_createNewNode(const NodeType & nodeType,
                                 const AttrType & keyType,
-                                IndexNode & newNode)
+                                IndexNode* &newNode)
 {
     void * buffer = malloc(PAGE_SIZE);
-    newNode = IndexNode(buffer); // memcpy of the buffer
+    newNode = new IndexNode(buffer); // memcpy of the buffer
     free(buffer);
-    newNode.initializeEmptyNode();
-    newNode.setKeyType(keyType);
-    newNode.setNextPageNum(NO_MORE_PAGE);
-    newNode.setFreeSpaceOfs(0);
-    newNode.setThisNodeType(nodeType);
+    newNode->initializeEmptyNode();
+    newNode->setKeyType(keyType);
+    newNode->setNextPageNum(NO_MORE_PAGE);
+    newNode->setFreeSpaceOfs(0);
+    newNode->setThisNodeType(nodeType);
     
     return 0;
 }
@@ -104,7 +104,9 @@ RC IndexManager::_initializeBplusRoot(const NodeType & nodeType,
                                       const AttrType & keyType,
                                       IndexNode & root)
 {
-    _createNewNode(nodeType, keyType, root);
+    IndexNode* rootptr = nullptr;
+    _createNewNode(nodeType, keyType, rootptr);
+    root = *rootptr;
     return 0;
 }
 
@@ -143,27 +145,29 @@ RC IndexManager::_insertIntoLeafTupleList(IndexNode & leaf,
 
 RC IndexManager::_insertIntoBranchTupleList(IndexNode & branch,
                                             BranchTuple & inserted,
-                                            BranchTuple & head)
+                                            BranchTuple* &headptr)
 {
-    branch.rolloutOfBuffer(head);
+    branch.rolloutOfBuffer(headptr);
     
-    BranchTuple * prevptr = nullptr;
-    BranchTuple * headptr = & head;
-    while (headptr != nullptr && *headptr <= inserted)
+    BranchTuple* prevptr = nullptr;
+    BranchTuple* curs = headptr;
+    while (curs != nullptr && *curs <= inserted)
     {
-        prevptr = headptr;
-        headptr = headptr->next;
+        prevptr = curs;
+        curs = curs->next;
     }
     if (prevptr == nullptr) {
+        // insert before the first one, thus change headptr;
         inserted.next = headptr;
-        head = inserted;
+        headptr = & inserted;
     }
-    else if (headptr == nullptr) {
-        headptr->next = & inserted;
+    else if (curs == nullptr) {
+        // append
+        prevptr->next = & inserted;
     }
     else {
         prevptr->next = & inserted;
-        inserted.next = headptr;
+        inserted.next = curs;
     }
     return 0;
 }
@@ -181,16 +185,17 @@ RC IndexManager::_splitLeafTupleList(LeafTuple * first, LeafTuple* &second)
     
     return 0;
 }
-RC IndexManager::_splitBranchTupleList(BranchTuple & first, BranchTuple & second)
+RC IndexManager::_splitBranchTupleList(BranchTuple* first, BranchTuple* &second)
 {
-    BranchTuple * fast = & first;
-    BranchTuple * slow = & first;
+    BranchTuple * fast = first;
+    BranchTuple * slow = first;
     while (fast != nullptr && fast->next != nullptr) {
         fast = fast->next->next;
         slow = slow->next;
     }
-    second = *slow->next;
+    second = slow->next;
     slow->next = nullptr;
+    // it does modify the object, so object is object, ptr is ptr, even though pointer is temp in this function stack, it points to the persistent and object of interest.
     
     return 0;
 }
@@ -204,7 +209,7 @@ void IndexManager::_printLeafTupleList(LeafTuple* first)
     cout << "null." << endl;
 }
 RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
-                                 IndexNode * newChildPtr,
+                                 IndexNode* &newChildPtr,
                                  IXFileHandle & ixFileHandle,
                                  const AttrType & keyType,
                                  const void * key,
@@ -228,7 +233,7 @@ RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
     
     // ENOUGH SPACE
     if (freeSpaceAmount >= inserted.getLength()) {
-        _printLeafTupleList(first);
+//        _printLeafTupleList(first);
         leaf.rollinToBuffer(first);
         ixFileHandle.writePage(leaf.getThisPageNum(), leaf.getBufferPtr());
         return 0;
@@ -238,19 +243,22 @@ RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
     LeafTuple* second;
     _splitLeafTupleList(first, second);
     
-    _printLeafTupleList(first);
-    _printLeafTupleList(second);
+//    _printLeafTupleList(first);
+//    _printLeafTupleList(second);
     
-    IndexNode sibling;
+    IndexNode* sibling;
     _createNewNode(Leaf, keyType, sibling);
     leaf.rollinToBuffer(first);
-    sibling.rollinToBuffer(second);
+    sibling->rollinToBuffer(second);
     
-    ixFileHandle.appendPage(sibling.getBufferPtr());
-    PageNum newPageNum = ixFileHandle.getNumberOfPages() - 1;
-    sibling.setThisPageNum(newPageNum);
+    PageNum newPageNum = ixFileHandle.getNumberOfPages();
+    sibling->setThisPageNum(newPageNum);
     leaf.setNextPageNum(newPageNum);
-    newChildPtr = & sibling;
+    
+    ixFileHandle.writePage(leaf.getThisPageNum(), leaf.getBufferPtr());
+    ixFileHandle.appendPage(sibling->getBufferPtr());
+    
+    newChildPtr = sibling;
     
     return 0;
 }
@@ -301,7 +309,7 @@ RC IndexManager::_insertIntoBplusTree(IndexNode & root,
             // get current free space amount
             short freeSpaceAmount = root.getFreeSpaceAmount();
             // insert bubUpBtup into branch tuple linkedlist
-            BranchTuple first;
+            BranchTuple* first;
             _insertIntoBranchTupleList(root, bubUpBtup, first);
             
             if (freeSpaceAmount > bubUpBtup.getLength()) {
@@ -309,18 +317,20 @@ RC IndexManager::_insertIntoBplusTree(IndexNode & root,
                 ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
             }
             else {
-                BranchTuple second;
+                BranchTuple* second;
                 _splitBranchTupleList(first, second);
-                IndexNode sibling;
+                IndexNode* sibling;
                 _createNewNode(Branch, keyType, sibling);
                 root.rollinToBuffer(first);
-                sibling.rollinToBuffer(second);
+                sibling->rollinToBuffer(second);
                 
-                ixFileHandle.appendPage(sibling.getBufferPtr());
-                PageNum newPageNum = ixFileHandle.getNumberOfPages() - 1;
-                sibling.setThisPageNum(newPageNum);
+                PageNum newPageNum = ixFileHandle.getNumberOfPages();
+                sibling->setThisPageNum(newPageNum);
                 root.setNextPageNum(newPageNum);
-                newChildPtr = & sibling; // ptr to the 1st key
+                
+                ixFileHandle.appendPage(sibling->getBufferPtr());
+                ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
+                newChildPtr = sibling; // ptr to the 1st key
             }
         }
     }
@@ -352,8 +362,8 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
                          attribute.type,
                          key,
                          rid);
-    // burn updates to disk
-    ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
+//    // burn updates to disk
+//    ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
     
     // root hasn't been modified since the last change
     if (newChildPtr != nullptr) {
@@ -365,7 +375,7 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
                                             root.getThisPageNum(),
                                             newChildPtr->getThisPageNum());
         
-        newRoot.rollinToBuffer(bubUpBtup);
+        newRoot.rollinToBuffer(&bubUpBtup);
         newRoot.setThisPageNum(ixFileHandle.getNumberOfPages());
         // burn newRoot into new page
         ixFileHandle.appendPage(newRoot.getBufferPtr());
@@ -558,9 +568,9 @@ const {
         _printLeaf(node, keyType);
         return ;
     }
-    BranchTuple head;
-    node.rolloutOfBuffer(head);
-    BranchTuple * headptr = & head;
+    
+    BranchTuple * headptr = nullptr;
+    node.rolloutOfBuffer(headptr);
     
     cout << "{KEYS: [";
     vector<PageNum> children;

@@ -115,7 +115,7 @@ void * IndexNode::getBufferPtr()
 }
 
 RC IndexNode::_rollinToBufferLeafHelper(LeafTuple * t,
-                                        void * startOfs)
+                                        void * bufferOfs)
 {
     assert(t->getKeyType() == _keyType
            && "IndexNode:_rollinToBufferLeafHelper(): ERR.");
@@ -123,22 +123,22 @@ RC IndexNode::_rollinToBufferLeafHelper(LeafTuple * t,
     short ofs;
     switch (t->getKeyType()) {
         case TypeInt:
-            memcpy(startOfs, & t->intKey, sizeof(int));
+            memcpy(bufferOfs, & t->intKey, sizeof(int));
             ofs = sizeof(int);
             break;
         case TypeReal:
-            memcpy(startOfs, & t->fltKey, sizeof(float));
+            memcpy(bufferOfs, & t->fltKey, sizeof(float));
             ofs = sizeof(float);
         default:
             // c_str()
-            memcpy(startOfs, t->strKey.c_str(), (size_t)t->strKey.length());
+            memcpy(bufferOfs, t->strKey.c_str(), (size_t)t->strKey.length());
             ofs = t->strKey.length();
             break;
     }
     PageNum pageNum = t->getRid().pageNum;
     SlotNum slotNum = t->getRid().slotNum;
-    memcpy((char*)startOfs + ofs, & pageNum, sizeof(PageNum));
-    memcpy((char*)startOfs + ofs + sizeof(PageNum), & slotNum, sizeof(slotNum));
+    memcpy((char*)bufferOfs + ofs, & pageNum, sizeof(PageNum));
+    memcpy((char*)bufferOfs + ofs + sizeof(PageNum), & slotNum, sizeof(slotNum));
     return 0;
 }
 
@@ -150,7 +150,7 @@ RC IndexNode::rollinToBuffer(LeafTuple * headptr)
     memset(_buffer, EMPTY_BYTE, IDX_INFO_LEFT_BOUND_OFS);
     while (headptr != nullptr) {
         assert(increment <= IDX_INFO_LEFT_BOUND_OFS &&
-               "IndexNode::rollinToBuffer() ERROR.");
+               "IndexNode::rollinToBuffer(LeafTupe) ERROR.");
         
         if (headptr->getKeyPtr() != nullptr) {
             _rollinToBufferLeafHelper(headptr, (char*)_buffer + increment);
@@ -161,6 +161,48 @@ RC IndexNode::rollinToBuffer(LeafTuple * headptr)
     _setFreeSpaceOfs(increment);
     return 0;
 }
+
+RC IndexNode::_rollinToBufferBranchHelper(BranchTuple* t,
+                                          void* bufferOfs)
+{
+    assert(t->getKeyType() == _keyType
+           && "IndexNode:_rollinToBufferBranchHelper(): ERR.");
+    
+    short ofs;
+    switch (t->getKeyType()) {
+        case TypeInt:
+            memcpy(bufferOfs, & t->intKey, sizeof(int));
+            ofs = sizeof(int);
+            break;
+        case TypeReal:
+            memcpy(bufferOfs, & t->fltKey, sizeof(float));
+            ofs = sizeof(float);
+        default:
+            // c_str()
+            memcpy(bufferOfs, t->strKey.c_str(), (size_t)t->strKey.length());
+            ofs = t->strKey.length();
+            break;
+    }
+    PageNum leftChild = t->getLeftChild();
+    PageNum rightChild = t->getRightChild();
+    memcpy((char*)bufferOfs + ofs, & leftChild, sizeof(PageNum));
+    memcpy((char*)bufferOfs + ofs + sizeof(PageNum), & rightChild, sizeof(PageNum));
+    return 0;
+}
+RC IndexNode::rollinToBuffer(BranchTuple* headptr)
+{
+    short increment = FIRST_TUPLE_OFS;
+    while (headptr != nullptr) {
+        assert(increment <= IDX_INFO_LEFT_BOUND_OFS &&
+               "IndexNode::rollinToBuffer(BranchTuple) ERROR.");
+        _rollinToBufferBranchHelper(headptr, (char*)_buffer + increment);
+        increment += headptr->getLength();
+        headptr = headptr->next;
+    }
+    _setFreeSpaceOfs(increment);
+    return 0;
+}
+
 RC IndexNode::rolloutOfBuffer(LeafTuple* & headptr)
 {
     headptr = new LeafTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
@@ -176,59 +218,54 @@ RC IndexNode::rolloutOfBuffer(LeafTuple* & headptr)
     return 0;
 }
 
-RC IndexNode::rollinToBuffer(BranchTuple & head)
+RC IndexNode::rolloutOfBuffer(BranchTuple* &headptr)
 {
-    BranchTuple * headptr = & head;
-    short increment = FIRST_TUPLE_OFS;
-    while (headptr != nullptr) {
-        assert(increment <= IDX_INFO_LEFT_BOUND_OFS &&
-               "IndexNode::rollinToBuffer() ERROR.");
-        memcpy((char*)_buffer + increment,
-               headptr->getKeyPtr(),
-               headptr->getLength());
-        increment += headptr->getLength();
-        headptr = headptr->next;
-    }
-    _setFreeSpaceOfs(increment);
-    return 0;
-}
-
-RC IndexNode::rolloutOfBuffer(BranchTuple & head)
-{
-    head = BranchTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
-    BranchTuple * headptr = & head;
-    BranchTuple next;
+    headptr = new BranchTuple(_buffer, FIRST_TUPLE_OFS, _keyType);
+    BranchTuple* curs = headptr;
+    BranchTuple* nextptr;
     short increment = headptr->getLength();
     while (increment < _freeSpaceOfs) {
-        next = BranchTuple(_buffer, increment, _keyType);
-        headptr->next = & next;
-        headptr = headptr->next;
-        increment += headptr->getLength();
+        nextptr = new BranchTuple(_buffer, increment, _keyType);
+        curs->next = nextptr;
+        curs = curs->next;
+        increment += curs->getLength();
     }
     return 0;
 }
 
 RC IndexNode::linearSearchBranchTupleForChild(const void * key,
-                                     const AttrType & keyType,
-                                     PageNum & nextPage)
+                                              const AttrType & keyType,
+                                              PageNum & nextPage)
 {
     assert(_nodeType == Branch &&
            "IndexNode::_linearSearchForLeftChildOf(): ERROR.");
     
+    BranchTuple* headptr;
+    rolloutOfBuffer(headptr);
+    
+    if (key == nullptr) {
+        nextPage = headptr->getLeftChild();
+        return 0;
+    }
+    
     BranchTuple t = BranchTuple(key, keyType, 0, 0);
     
-    BranchTuple head;
-    rolloutOfBuffer(head);
-    BranchTuple * prevptr = nullptr;
-    BranchTuple * headptr = & head;
-    // find the first BranchTuple that is larger than or equal to t
-    while (headptr != nullptr && *headptr < t) {
+    BranchTuple* prevptr = nullptr;
+    // put headptr to the first branchTuple that is larger than t
+    // return the prevptr->rightChild()
+    while (headptr != nullptr && *headptr <= t) {
         prevptr = headptr;
         headptr = headptr->next;
     }
+
     if (prevptr == nullptr) {
+        // the first branchTuple is larger than t
         nextPage = headptr->getLeftChild();
     }
+//    else if (headptr == nullptr) {
+//        // the last branchTuple is smaller than t
+//        nextPage = prevptr->getRightChild();
+//    }
     else {
         nextPage = prevptr->getRightChild();
     }

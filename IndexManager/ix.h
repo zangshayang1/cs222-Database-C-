@@ -61,7 +61,9 @@ private:
     
     bool _validIxFileHandle(const IXFileHandle & ixFileHandle) const;
     
-    RC _createNewNode(const NodeType & nodeType, const AttrType & keyType, IndexNode & newNode);
+    RC _createNewNode(const NodeType & nodeType,
+                      const AttrType & keyType,
+                      IndexNode* &newNode);
     
     RC _initializeBplusRoot(const NodeType & nodeType, const AttrType & keyType, IndexNode & root);
     
@@ -69,13 +71,20 @@ private:
                                 LeafTuple & inserted,
                                 LeafTuple* &head);
     
-    RC _insertIntoBranchTupleList(IndexNode & branch, BranchTuple & inserted, BranchTuple & head);
+    RC _insertIntoBranchTupleList(IndexNode & branch,
+                                  BranchTuple & inserted,
+                                  BranchTuple* &headptr);
     
     RC _splitLeafTupleList(LeafTuple * first, LeafTuple* &second);
     
-    RC _splitBranchTupleList(BranchTuple & first, BranchTuple & second);
+    RC _splitBranchTupleList(BranchTuple* first, BranchTuple* &second);
     
-    RC _insertIntoLeaf(IndexNode & leaf, IndexNode * newChildPtr, IXFileHandle & ixFileHandle, const AttrType & keyType, const void * key, const RID & rid);
+    RC _insertIntoLeaf(IndexNode & leaf,
+                       IndexNode* &newChildPtr,
+                       IXFileHandle & ixFileHandle,
+                       const AttrType & keyType,
+                       const void * key,
+                       const RID & rid);
     
     RC _insertIntoBplusTree(IndexNode & root,
                             IndexNode* &newChildPtr,
