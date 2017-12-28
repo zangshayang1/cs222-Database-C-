@@ -129,6 +129,7 @@ RC IndexNode::_rollinToBufferLeafHelper(LeafTuple * t,
         case TypeReal:
             memcpy(bufferOfs, & t->fltKey, sizeof(float));
             ofs = sizeof(float);
+            break;
         default:
             // c_str()
             memcpy(bufferOfs, t->strKey.c_str(), (size_t)t->strKey.length());
@@ -148,14 +149,19 @@ RC IndexNode::rollinToBuffer(LeafTuple * headptr)
     
     // clear current _buffer of the page
     memset(_buffer, EMPTY_BYTE, IDX_INFO_LEFT_BOUND_OFS);
-    while (headptr != nullptr) {
+    
+    while (headptr != nullptr && headptr->getKeyPtr() != nullptr) {
         assert(increment <= IDX_INFO_LEFT_BOUND_OFS &&
                "IndexNode::rollinToBuffer(LeafTupe) ERROR.");
+
+        _rollinToBufferLeafHelper(headptr, (char*)_buffer + increment);
+        increment += headptr->getLength();
+
+//        if (headptr->getKeyPtr() != nullptr) {
+//            _rollinToBufferLeafHelper(headptr, (char*)_buffer + increment);
+//            increment += headptr->getLength();
+//        }
         
-        if (headptr->getKeyPtr() != nullptr) {
-            _rollinToBufferLeafHelper(headptr, (char*)_buffer + increment);
-            increment += headptr->getLength();
-        }
         headptr = headptr->next;
     }
     _setFreeSpaceOfs(increment);
@@ -177,10 +183,14 @@ RC IndexNode::_rollinToBufferBranchHelper(BranchTuple* t,
         case TypeReal:
             memcpy(bufferOfs, & t->fltKey, sizeof(float));
             ofs = sizeof(float);
-        default:
+            break;
+        case TypeVarChar:
             // c_str()
             memcpy(bufferOfs, t->strKey.c_str(), (size_t)t->strKey.length());
             ofs = t->strKey.length();
+            break;
+        default:
+            cout << "IndexNode::_rollinToBufferBranchHelper() : ERR."<< endl;
             break;
     }
     PageNum leftChild = t->getLeftChild();
@@ -461,7 +471,7 @@ BranchTuple::BranchTuple(const void * key,
     _leftChild = left;
     _rightChild = right;
     _keyType = keyType;
-    switch (keyType) {
+    switch (_keyType) {
         case TypeInt:
             intKey = *(int*)_keyPtr;
             _leftOfs = sizeof(int);
@@ -469,10 +479,13 @@ BranchTuple::BranchTuple(const void * key,
         case TypeReal:
             fltKey = *(float*)_keyPtr;
             _leftOfs = sizeof(float);
+            break;
         case TypeVarChar:
             strKey = _utils->getStringFrom(_keyPtr, 0);
             _leftOfs = sizeof(int) + strKey.length();
+            break;
         default:
+            cout << "BranchTuple::BranchTuple() : ERR." << endl;
             break;
     }
     _rightOfs = _leftOfs + sizeof(PageNum);
@@ -485,7 +498,8 @@ BranchTuple::BranchTuple(void * data,
                          const AttrType & keyType)
 {
     _keyPtr = (char*)data + tupleOfs;
-    switch (keyType) {
+    _keyType = keyType;
+    switch (_keyType) {
         case TypeInt:
             intKey = *(int*)_keyPtr;
             _leftOfs = sizeof(int);
@@ -493,9 +507,11 @@ BranchTuple::BranchTuple(void * data,
         case TypeReal:
             fltKey = *(float*)_keyPtr;
             _leftOfs = sizeof(float);
+            break;
         case TypeVarChar:
             strKey = _utils->getStringFrom(_keyPtr, 0);
             _leftOfs = sizeof(int) + strKey.length();
+            break;
         default:
             break;
     }
@@ -522,11 +538,3 @@ RC BranchTuple::setRightChild(PageNum right)
     memcpy((char*)_keyPtr + _rightOfs, & right, sizeof(PageNum));
     return 0;
 }
-
-
-
-
-
-
-
-

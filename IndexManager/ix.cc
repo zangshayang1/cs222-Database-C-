@@ -200,10 +200,45 @@ RC IndexManager::_splitBranchTupleList(BranchTuple* first, BranchTuple* &second)
     return 0;
 }
 
-void IndexManager::_printLeafTupleList(LeafTuple* first)
+void IndexManager::_printBranchTupleList(BranchTuple* first,
+                                         const AttrType &keyType)
 {
     while (first != nullptr) {
-        cout << first->intKey << "->";
+        switch (keyType) {
+            case TypeInt:
+                cout << first->intKey << "->";
+                break;
+            case TypeReal:
+                cout << first->fltKey << "->";
+                break;
+            case TypeVarChar:
+                cout << first->strKey << "->";
+                break;
+            default:
+                break;
+        }
+        first = first->next;
+    }
+    cout << "null." << endl;
+}
+
+void IndexManager::_printLeafTupleList(LeafTuple* first,
+                                       const AttrType & keyType)
+{
+    while (first != nullptr) {
+        switch (keyType) {
+            case TypeInt:
+                cout << first->intKey << "->";
+                break;
+            case TypeReal:
+                cout << first->fltKey << "->";
+                break;
+            case TypeVarChar:
+                cout << first->strKey << "->";
+                break;
+            default:
+                break;
+        }
         first = first->next;
     }
     cout << "null." << endl;
@@ -233,7 +268,7 @@ RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
     
     // ENOUGH SPACE
     if (freeSpaceAmount >= inserted.getLength()) {
-//        _printLeafTupleList(first);
+//        _printLeafTupleList(first, keyType);
         leaf.rollinToBuffer(first);
         ixFileHandle.writePage(leaf.getThisPageNum(), leaf.getBufferPtr());
         return 0;
@@ -243,8 +278,8 @@ RC IndexManager::_insertIntoLeaf(IndexNode & leaf,
     LeafTuple* second;
     _splitLeafTupleList(first, second);
     
-//    _printLeafTupleList(first);
-//    _printLeafTupleList(second);
+//    _printLeafTupleList(first, keyType);
+//    _printLeafTupleList(second, keyType);
     
     IndexNode* sibling;
     _createNewNode(Leaf, keyType, sibling);
@@ -315,6 +350,9 @@ RC IndexManager::_insertIntoBplusTree(IndexNode & root,
             if (freeSpaceAmount > bubUpBtup.getLength()) {
                 root.rollinToBuffer(first);
                 ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
+                // no need to pass that newChild further up
+                // cause it's been successfully inserted here.
+                newChildPtr = nullptr;
             }
             else {
                 BranchTuple* second;
@@ -395,21 +433,25 @@ RC IndexManager::_deleteFromLeafTupleList(LeafTuple * headptr,
                                           const RID & rid)
 {
     LeafTuple curtKey = LeafTuple(key, keyType, rid);
-    LeafTuple * prevptr = nullptr;
-    while (headptr->next != nullptr) {
-        if (curtKey.exactMatch(* headptr)) {
+    
+    LeafTuple* prevptr = nullptr;
+    LeafTuple* curs = headptr;
+    while (curs->next != nullptr) {
+        if (curtKey.exactMatch(* curs)) {
             break;
         }
-        prevptr = headptr;
-        headptr = headptr->next;
+        prevptr = curs;
+        curs = curs->next;
     }
 
-    if (prevptr == nullptr && headptr->next == nullptr) {
+    if (prevptr == nullptr && curs->next == nullptr) {
         // only 1 leafTuple in this list
-        headptr->setKeyPtr(nullptr);
+        // no need to move headptr
+        curs->setKeyPtr(nullptr);
     }
     else if (prevptr == nullptr) {
         // the 1st leafTuple is what we want to delete
+        // simply move headptr
         headptr = headptr->next;
     }
     else if (headptr->next == nullptr) {
@@ -417,9 +459,12 @@ RC IndexManager::_deleteFromLeafTupleList(LeafTuple * headptr,
         return -1;
     }
     else {
-        // found it
-        prevptr->next = headptr->next;
+        // found it, skip
+        prevptr->next = curs->next;
     }
+    // at this point, there are two kinds of outcome
+    // 1. headptr points to a single LeafTuple, whose keyPtr is nullptr;
+    // 2. headptr points to a list of LeafTuple that skips over deleted LeafTuple.
     return 0;
 }
 
@@ -667,8 +712,10 @@ LeafTuple IX_ScanIterator::_lowestBoundTup(AttrType & keyType)
             break;
         case TypeReal:
             key = & minInt;
+            break;
         case TypeVarChar:
             key = & minStr;
+            break;
         default:
             cout << "IX_ScanIterator::_lowestBoundTup(): ERR." << endl;
             break;
@@ -697,8 +744,10 @@ LeafTuple IX_ScanIterator::_highestBoundTup(AttrType & keyType)
             break;
         case TypeReal:
             key = & maxInt;
+            break;
         case TypeVarChar:
             key = & maxStr;
+            break;
         default:
             cout << "IX_ScanIterator::_highestBoundTup(): ERR." << endl;
             break;
@@ -749,7 +798,7 @@ RC IX_ScanIterator::initialize(const PageNum & rootPageNum,
     return _putScanIteratorCursors();
 }
 
-RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
+RC IX_ScanIterator::getNextEntry(RID &rid, void* key)
 {
     if (_ended) {
         return -1;
@@ -767,8 +816,15 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void *key)
     rid = _leafTupCurs->getRid();
     switch (_keyType) {
         case TypeInt:
-            key = & _leafTupCurs->intKey;
+        {
+            int intVal = _leafTupCurs->intKey;
+            cout << "intVal: " << intVal << endl;
+            key = & intVal;
+            cout << "keyVal: " << *(int*)key << endl;
+            
+            //            key = & _leafTupCurs->intKey;
             break;
+        }
         case TypeReal:
             key = & _leafTupCurs->fltKey;
             break;

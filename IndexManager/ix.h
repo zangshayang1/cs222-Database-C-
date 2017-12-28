@@ -118,7 +118,11 @@ private:
                                 const void * key,
                                 const RID & rid);
     
-    void _printLeafTupleList(LeafTuple* first);
+    void _printLeafTupleList(LeafTuple* first,
+                             const AttrType & keyType);
+    
+    void _printBranchTupleList(BranchTuple* first,
+                               const AttrType &keyType);
     
 };
 
@@ -160,7 +164,7 @@ public:
     ~IX_ScanIterator() {};
     
     // Get next matching entry
-    RC getNextEntry(RID &rid, void *key);
+    RC getNextEntry(RID &rid, void* key);
     
     // Terminate index scan
     RC close();
