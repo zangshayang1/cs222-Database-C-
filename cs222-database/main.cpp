@@ -125,7 +125,7 @@ int testCase_3(const string &indexFileName, const Attribute &attribute)
     cerr << endl << "***** In IX Test Case 3 *****" << endl;
     
     RID rid;
-    int key = 200;
+    void * key = nullptr;
     rid.pageNum = 500;
     rid.slotNum = 20;
     
@@ -158,7 +158,7 @@ int testCase_3(const string &indexFileName, const Attribute &attribute)
     
     // There should be one record
     int count = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
         cerr << "Returned rid from a scan: " << rid.pageNum << " " << rid.slotNum << endl;
         assert(rid.pageNum == 500 && "rid.pageNum is not correct.");
@@ -311,7 +311,7 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
     RID rid;
     IXFileHandle ixfileHandle;
     IX_ScanIterator ix_ScanIterator;
-    unsigned key;
+    void * key = nullptr;
     int inRidSlotNumSum = 0;
     int outRidSlotNumSum = 0;
     unsigned numOfTuples = 1000;
@@ -327,17 +327,17 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
     // insert entries
     for(unsigned i = 0; i <= numOfTuples; i++)
     {
-        key = i;
-        rid.pageNum = key;
-        rid.slotNum = key * 3;
+        key = &i;
+        rid.pageNum = i;
+        rid.slotNum = i * 3;
         
-        cout << "insert entry # " << key << endl;
+        cout << "insert entry # " << i << endl;
         
-        if (key == 510) {
-            cout << "check this insertion!" << endl;
+        if (i == 170) {
+            cout << "check here. " << endl;
         }
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         
         //indexManager->printBtree(ixfileHandle, attribute);
         
@@ -352,7 +352,7 @@ int testCase_6(const string &indexFileName, const Attribute &attribute)
     
     // Fetch all entries
     int count = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
         count++;
         
@@ -399,7 +399,7 @@ int testCase_7(const string &indexFileName, const Attribute &attribute)
     RID rid;
     IXFileHandle ixfileHandle;
     IX_ScanIterator ix_ScanIterator;
-    unsigned key;
+    void * key = nullptr;
     int inRidSlotNumSum = 0;
     int outRidSlotNumSum = 0;
     unsigned numOfTuples = 1000;
@@ -411,9 +411,9 @@ int testCase_7(const string &indexFileName, const Attribute &attribute)
     // compute inRidPageNumSum without inserting entries
     for(unsigned i = 0; i <= numOfTuples; i++)
     {
-        key = i;
-        rid.pageNum = key;
-        rid.slotNum = key * 3;
+        key = &i;
+        rid.pageNum = i;
+        rid.slotNum = i * 3;
         
         inRidSlotNumSum += rid.slotNum;
     }
@@ -424,7 +424,7 @@ int testCase_7(const string &indexFileName, const Attribute &attribute)
     
     // Fetch all entries
     int count = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
         count++;
         
@@ -477,7 +477,7 @@ int testCase_8(const string &indexFileName, const Attribute &attribute)
     IX_ScanIterator ix_ScanIterator;
     unsigned numOfTuples = 300;
     unsigned numOfMoreTuples = 100;
-    unsigned key;
+    void * key = nullptr;
     int inRidSlotNumSum = 0;
     int outRidSlotNumSum = 0;
     unsigned value = 7001;
@@ -496,22 +496,22 @@ int testCase_8(const string &indexFileName, const Attribute &attribute)
     // insert Entries
     for(unsigned i = 1; i <= numOfTuples; i++)
     {
-        key = i;
-        rid.pageNum = key;
-        rid.slotNum = key * 3;
+        key = &i;
+        rid.pageNum = i;
+        rid.slotNum = i * 3;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
     }
     
     // Insert more entries
     for(unsigned i = value; i < value + numOfMoreTuples; i++)
     {
-        key = i;
-        rid.pageNum = key;
-        rid.slotNum = key * 3;
+        key = &i;
+        rid.pageNum = i;
+        rid.slotNum = i * 3;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         
         inRidSlotNumSum += rid.slotNum;
@@ -523,7 +523,7 @@ int testCase_8(const string &indexFileName, const Attribute &attribute)
     
     // IndexScan iterator
     unsigned count = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
         count++;
         
@@ -584,7 +584,7 @@ int testCase_9(const string &indexFileName, const Attribute &attribute) {
     IX_ScanIterator ix_ScanIterator;
     unsigned numOfTuples = 2000;
     unsigned numOfMoreTuples = 6000;
-    float key;
+    void * key = nullptr;
     float compVal = 6500;
     int inRidSlotNumSum = 0;
     int outRidSlotNumSum = 0;
@@ -599,34 +599,34 @@ int testCase_9(const string &indexFileName, const Attribute &attribute) {
     
     // insert entries
     for (unsigned i = 1; i <= numOfTuples; i++) {
-        key = (float) i + 87.6;
+        float keyVal = ((float) i + 87.6);
+        key = &keyVal;
         rid.pageNum = i;
         rid.slotNum = i;
         
         cout << "insert # " << i << endl;
         
-        if (i == 511) {
-            cout << "stop here!" << endl;
-        }
-        
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         
-        if (key < compVal) {
+        if (*(float*)key < compVal) {
             inRidSlotNumSum += rid.slotNum;
         }
     }
     
     // insert more entries
     for (unsigned i = 6000; i <= numOfTuples + numOfMoreTuples; i++) {
-        key = (float) i + 87.6;
+        float keyVal = ((float) i + 87.6);
+        key = &keyVal;
         rid.pageNum = i;
         rid.slotNum = i - (unsigned) 500;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        cout << "insert # " << i << endl;
+        
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         
-        if (key < compVal) {
+        if (*(float*)key < compVal) {
             inRidSlotNumSum += rid.slotNum;
         }
     }
@@ -637,7 +637,7 @@ int testCase_9(const string &indexFileName, const Attribute &attribute) {
     
     // iterate
     unsigned count = 0;
-    while (ix_ScanIterator.getNextEntry(rid, &key) == success) {
+    while (ix_ScanIterator.getNextEntry(rid, key) == success) {
         count++;
         if (rid.pageNum % 500 == 0) {
             cerr << count << " - Returned rid: " << rid.pageNum << " " << rid.slotNum << endl;
@@ -686,8 +686,12 @@ int testCase_10(const string &indexFileName, const Attribute &attribute)
     RID rid;
     IXFileHandle ixfileHandle;
     IX_ScanIterator ix_ScanIterator;
-    unsigned key1 = 200;
-    unsigned key2 = 500;
+    void * key1 = nullptr;
+    void * key2 = nullptr;
+    unsigned key1Val = 200;
+    unsigned key2Val = 500;
+    key1 = & key1Val;
+    key2 = & key2Val;
     unsigned numOfTuples = 50;
     
     int inRidSlotNumSum = 0;
@@ -709,24 +713,24 @@ int testCase_10(const string &indexFileName, const Attribute &attribute)
         rid.pageNum = i + 1;
         rid.slotNum = i + 2;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key1, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key1, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         inRidSlotNumSum += rid.slotNum;
         
         rid.pageNum = i + 101;
         rid.slotNum = i + 102;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key2, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key2, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
     }
     
     // Scan
-    rc = indexManager->scan(ixfileHandle, attribute, &key1, &key1, true, true, ix_ScanIterator);
+    rc = indexManager->scan(ixfileHandle, attribute, key1, key1, true, true, ix_ScanIterator);
     assert(rc == success && "indexManager::scan() should not fail.");
     
     // iterate
     unsigned count = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key1) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key1) == success)
     {
         count++;
         if (count % 10 == 0) {
@@ -776,7 +780,7 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     RID rid;
     IXFileHandle ixfileHandle;
     IX_ScanIterator ix_ScanIterator;
-    unsigned key;
+    void * key = nullptr;
     unsigned inRecordNum = 0;
     unsigned outRecordNum = 0;
     unsigned numOfTuples = 1000 * 1;
@@ -794,16 +798,16 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     // insert entries
     for(unsigned i = 0; i <= numOfTuples; i++)
     {
-        key = i;
-        rid.pageNum = key + 1;
-        rid.slotNum = key + 2;
+        key = &i;
+        rid.pageNum = i + 1;
+        rid.slotNum = i + 2;
         
         cout << "insert key " << i << endl;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         inRecordNum += 1;
-        if (inRecordNum % 200000 == 0) {
+        if (inRecordNum % 200 == 0) {
             cerr << inRecordNum << " inserted - rid: " << rid.pageNum << " " << rid.slotNum << endl;
         }
     }
@@ -817,16 +821,18 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     // Iterate
     cerr << endl;
 
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
-        if (rid.pageNum != key + 1 || rid.slotNum != key + 2) {
+        cout << "key got back: "<< *(unsigned*)key << endl;
+        
+        if (rid.pageNum != *(unsigned*)key + 1 || rid.slotNum != *(unsigned*)key + 2) {
             cerr << "Wrong entries output... The test failed." << endl;
             rc = ix_ScanIterator.close();
             rc = indexManager->closeFile(ixfileHandle);
             return fail;
         }
         outRecordNum += 1;
-        if (outRecordNum % 200000 == 0) {
+        if (outRecordNum % 200 == 0) {
             cerr << outRecordNum << " scanned. " << endl;
         }
     }
@@ -845,15 +851,15 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     unsigned deletedRecordNum = 0;
     for(unsigned i = 5; i <= numOfTuples; i += 10)
     {
-        key = i;
-        rid.pageNum = key + 1;
-        rid.slotNum = key + 2;
+        key = &i;
+        rid.pageNum = i + 1;
+        rid.slotNum = i + 2;
         
-        rc = indexManager->deleteEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->deleteEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::deleteEntry() should not fail.");
         
         deletedRecordNum += 1;
-        if (deletedRecordNum % 20000 == 0) {
+        if (deletedRecordNum % 20 == 0) {
             cerr << deletedRecordNum << " deleted. " << endl;
         }
     }
@@ -868,16 +874,16 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     cerr << endl;
     // Iterate
     outRecordNum = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
-        if (rid.pageNum != key + 1 || rid.slotNum != key + 2) {
+        if (rid.pageNum != *(unsigned*)key + 1 || rid.slotNum != *(unsigned*)key + 2) {
             cerr << "Wrong entries output... The test failed." << endl;
             rc = ix_ScanIterator.close();
             rc = indexManager->closeFile(ixfileHandle);
             return fail;
         }
         outRecordNum += 1;
-        if (outRecordNum % 200000 == 0) {
+        if (outRecordNum % 200 == 0) {
             cerr << outRecordNum << " scanned. " << endl;
         }
         
@@ -898,11 +904,11 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     cerr << endl;
     for(unsigned i = 5; i <= numOfTuples; i += 10)
     {
-        key = i;
-        rid.pageNum = key + 1;
-        rid.slotNum = key + 2;
+        key = &i;
+        rid.pageNum = i + 1;
+        rid.slotNum = i + 2;
         
-        rc = indexManager->insertEntry(ixfileHandle, attribute, &key, rid);
+        rc = indexManager->insertEntry(ixfileHandle, attribute, key, rid);
         assert(rc == success && "indexManager::insertEntry() should not fail.");
         
         reInsertedRecordNum += 1;
@@ -921,9 +927,9 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
     // Iterate
     cerr << endl;
     outRecordNum = 0;
-    while(ix_ScanIterator.getNextEntry(rid, &key) == success)
+    while(ix_ScanIterator.getNextEntry(rid, key) == success)
     {
-        if (rid.pageNum != key + 1 || rid.slotNum != key + 2) {
+        if (rid.pageNum != *(unsigned*)key + 1 || rid.slotNum != *(unsigned*)key + 2) {
             cerr << "Wrong entries output... The test failed." << endl;
             rc = ix_ScanIterator.close();
             rc = indexManager->closeFile(ixfileHandle);
@@ -931,7 +937,7 @@ int testCase_11(const string &indexFileName, const Attribute &attribute){
         }
         outRecordNum += 1;
         
-        if (outRecordNum % 200000 == 0) {
+        if (outRecordNum % 200 == 0) {
             cerr << outRecordNum << " scanned. " << endl;
         }
         
@@ -980,72 +986,72 @@ int main()
     attrAge.name = "age";
     attrAge.type = TypeInt;
     
-//    // test 1
-//    rc = testCase_1(ageIdxFileName);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 1 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 1 failed. *****" << endl;
-//    }
-//
-//    // test 2
-//    rc = testCase_2(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 2 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 2 failed. *****" << endl;
-//    }
-//
-//    // test 3
-//    rc = testCase_3(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 3 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 3 failed. *****" << endl;
-//    }
-//
-//    // test 4
-//    rc = testCase_4(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 4 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 4 failed. *****" << endl;
-//    }
-//
-//    // test 5
-//    // Global Initialization
-//    rc = testCase_5(ageIdxFileName, attrAge);;
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 5 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 5 failed. *****" << endl;
-//    }
-//
-//    //test 6
-//    rc = testCase_6(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 6 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 6 failed. *****" << endl;
-//    }
-//
-//    //test 7
-//    rc = testCase_7(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 7 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 7 failed. *****" << endl;
-//    }
-//
-//    //test 8
-//    rc = testCase_8(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 8 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 8 failed. *****" << endl;
-//    }
-//
-//
+    // test 1
+    rc = testCase_1(ageIdxFileName);
+    if (rc == success) {
+        cerr << "***** IX Test Case 1 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 1 failed. *****" << endl;
+    }
+
+    // test 2
+    rc = testCase_2(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 2 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 2 failed. *****" << endl;
+    }
+
+    // test 3
+    rc = testCase_3(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 3 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 3 failed. *****" << endl;
+    }
+
+    // test 4
+    rc = testCase_4(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 4 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 4 failed. *****" << endl;
+    }
+
+    // test 5
+    // Global Initialization
+    rc = testCase_5(ageIdxFileName, attrAge);;
+    if (rc == success) {
+        cerr << "***** IX Test Case 5 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 5 failed. *****" << endl;
+    }
+
+    //test 6
+    rc = testCase_6(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 6 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 6 failed. *****" << endl;
+    }
+
+    //test 7
+    rc = testCase_7(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 7 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 7 failed. *****" << endl;
+    }
+
+    //test 8
+    rc = testCase_8(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 8 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 8 failed. *****" << endl;
+    }
+
+
     //test 10
     rc = testCase_10(ageIdxFileName, attrAge);
     if (rc == success) {
@@ -1054,13 +1060,13 @@ int main()
         cerr << "***** [FAIL] IX Test Case 10 failed. *****" << endl;
     }
     
-//    //test 11
-//    rc = testCase_11(ageIdxFileName, attrAge);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 11 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 11 failed. *****" << endl;
-//    }
+    //test 11
+    rc = testCase_11(ageIdxFileName, attrAge);
+    if (rc == success) {
+        cerr << "***** IX Test Case 11 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 11 failed. *****" << endl;
+    }
     
 // ---------------------------- Height Below -----------------------------
     
@@ -1071,15 +1077,15 @@ int main()
     attrHeight.type = TypeReal;
 
     
-//    // test 9
-//    remove("height_idx");
-//
-//    rc = testCase_9(hgtIdxFileName, attrHeight);
-//    if (rc == success) {
-//        cerr << "***** IX Test Case 9 finished. The result will be examined. *****" << endl;
-//    } else {
-//        cerr << "***** [FAIL] IX Test Case 9 failed. *****" << endl;
-//    }
+    // test 9
+    remove("height_idx");
+
+    rc = testCase_9(hgtIdxFileName, attrHeight);
+    if (rc == success) {
+        cerr << "***** IX Test Case 9 finished. The result will be examined. *****" << endl;
+    } else {
+        cerr << "***** [FAIL] IX Test Case 9 failed. *****" << endl;
+    }
     
 }
 

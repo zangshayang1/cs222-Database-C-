@@ -30,6 +30,7 @@ RC IndexManager::createFile(const string &fileName)
 
 RC IndexManager::destroyFile(const string &fileName)
 {
+    rootptr = nullptr;
     return _pfm->destroyFile(fileName);
 }
 
@@ -400,8 +401,6 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
                          attribute.type,
                          key,
                          rid);
-//    // burn updates to disk
-//    ixFileHandle.writePage(root.getThisPageNum(), root.getBufferPtr());
     
     // root hasn't been modified since the last change
     if (newChildPtr != nullptr) {
@@ -795,10 +794,13 @@ RC IX_ScanIterator::initialize(const PageNum & rootPageNum,
         RID rid2;
         _higherBoundTup = LeafTuple(_highKey, keyType, rid2);
     }
+    
+    _ended = false;
+    
     return _putScanIteratorCursors();
 }
 
-RC IX_ScanIterator::getNextEntry(RID &rid, void* key)
+RC IX_ScanIterator::getNextEntry(RID &rid, void* &key)
 {
     if (_ended) {
         return -1;
@@ -817,12 +819,7 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void* key)
     switch (_keyType) {
         case TypeInt:
         {
-            int intVal = _leafTupCurs->intKey;
-            cout << "intVal: " << intVal << endl;
-            key = & intVal;
-            cout << "keyVal: " << *(int*)key << endl;
-            
-            //            key = & _leafTupCurs->intKey;
+            key = & _leafTupCurs->intKey;
             break;
         }
         case TypeReal:
@@ -860,6 +857,9 @@ RC IX_ScanIterator::getNextEntry(RID &rid, void* key)
 
 RC IX_ScanIterator::close()
 {
+    _leafTupCurs = nullptr;
+    _ended = false;
+    
     return 0;
 }
 

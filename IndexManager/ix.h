@@ -164,7 +164,7 @@ public:
     ~IX_ScanIterator() {};
     
     // Get next matching entry
-    RC getNextEntry(RID &rid, void* key);
+    RC getNextEntry(RID &rid, void* &key);
     
     // Terminate index scan
     RC close();
