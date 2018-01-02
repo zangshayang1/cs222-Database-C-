@@ -113,7 +113,7 @@ private:
                        const void * key,
                        const RID & rid);
     
-    RC _deleteFromLeafTupleList(LeafTuple * headptr,
+    RC _deleteFromLeafTupleList(LeafTuple* &headptr,
                                 const AttrType & keyType,
                                 const void * key,
                                 const RID & rid);

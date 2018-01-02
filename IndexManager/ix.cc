@@ -426,7 +426,7 @@ RC IndexManager::insertEntry(IXFileHandle &ixFileHandle,
  * --------------------------------------------------------------------
  */
 
-RC IndexManager::_deleteFromLeafTupleList(LeafTuple * headptr,
+RC IndexManager::_deleteFromLeafTupleList(LeafTuple* &headptr,
                                           const AttrType & keyType,
                                           const void * key,
                                           const RID & rid)
@@ -681,6 +681,13 @@ RC IndexManager::scan(IXFileHandle &ixFileHandle,
 
 RC IX_ScanIterator::_putScanIteratorCursors()
 {
+    if (_nodeCurs.getFreeSpaceOfs() == FIRST_TUPLE_OFS) {
+        // assume that the LeafTuple must be where BranchTuple points at
+        // or no where.
+        _ended = true;
+        return 0;
+    }
+    
     if (_nodeCurs.getThisNodeType() == Leaf) {
         _nodeCurs.linearSearchLeafTupleForKey(_lowKeyInclusive,
                                               _lowerBoundTup,
